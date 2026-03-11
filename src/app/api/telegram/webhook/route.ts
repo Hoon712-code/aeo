@@ -24,7 +24,6 @@ async function sendTelegramMessage(chatId: number, text: string, replyToMessageI
             chat_id: chatId,
             text,
             reply_to_message_id: replyToMessageId,
-            parse_mode: "Markdown",
         }),
     });
 }
@@ -61,9 +60,25 @@ async function askGemini(userMessage: string): Promise<string> {
     return "죄송합니다, 답변을 생성하지 못했습니다. 다시 시도해 주세요.";
 }
 
+// GET handler for debugging
+export async function GET() {
+    return NextResponse.json({
+        status: "Webhook endpoint is active",
+        hasBotToken: !!TELEGRAM_BOT_TOKEN,
+        hasGeminiKey: !!GEMINI_API_KEY,
+        botTokenPrefix: TELEGRAM_BOT_TOKEN ? TELEGRAM_BOT_TOKEN.substring(0, 5) + "..." : "MISSING",
+        geminiKeyPrefix: GEMINI_API_KEY ? GEMINI_API_KEY.substring(0, 5) + "..." : "MISSING",
+    });
+}
+
 export async function POST(request: Request) {
+    // Log env var status for debugging
+    console.log("Webhook called. Bot token exists:", !!TELEGRAM_BOT_TOKEN, "Gemini key exists:", !!GEMINI_API_KEY);
+
     if (!TELEGRAM_BOT_TOKEN || !GEMINI_API_KEY) {
-        return NextResponse.json({ error: "Missing credentials" }, { status: 500 });
+        console.error("Missing credentials - BOT_TOKEN:", !!TELEGRAM_BOT_TOKEN, "GEMINI_KEY:", !!GEMINI_API_KEY);
+        // Return 200 to prevent Telegram from retrying
+        return NextResponse.json({ ok: true, error: "credentials not configured" });
     }
 
     try {
@@ -76,6 +91,7 @@ export async function POST(request: Request) {
 
         const chatId = message.chat.id;
         const userText = message.text;
+        console.log("Received message from chat:", chatId, "text:", userText);
 
         // Ignore commands like /start
         if (userText.startsWith("/start")) {
@@ -87,7 +103,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ ok: true });
         }
 
-        // In group chats, only respond when mentioned or replied to
+        // In group chats, only respond when mentioned
         if (message.chat.type === "group" || message.chat.type === "supergroup") {
             const botMentioned = userText.includes("@GreatAEO_bot");
             if (!botMentioned) {
