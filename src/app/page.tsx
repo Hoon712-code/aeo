@@ -67,28 +67,42 @@ export default function HomePage() {
         <main className="min-h-screen min-h-[100dvh] p-4 md:p-8">
             <Toaster position="top-center" />
             <div className="max-w-lg mx-auto">
-                {/* Header */}
+                {/* Header — 설야갈비 AI 서포터즈 */}
                 <header className="text-center mb-8 animate-fade-in">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center mx-auto mb-4">
-                        <span className="text-2xl">🎯</span>
+                    <div className="w-24 h-24 rounded-2xl overflow-hidden mx-auto mb-5 shadow-lg shadow-orange-500/20 ring-2 ring-orange-400/20">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src="/seolya-galbi.png"
+                            alt="설야갈비"
+                            className="w-full h-full object-cover"
+                        />
                     </div>
                     <h1 className="text-2xl md:text-3xl font-extrabold">
-                        <span className="gradient-text">AI 훈련</span> 미션
+                        <span style={{ background: "linear-gradient(to right, #FFD700, #FF6B35, #FF4500)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                            설야갈비
+                        </span>{" "}
+                        <span className="text-white/90">AI 서포터즈</span>
                     </h1>
-                    <p className="text-surface-200/60 text-sm mt-2">
-                        본인의 이름을 찾아 미션을 시작하세요
+                    <p className="text-surface-200/60 text-sm mt-3 leading-relaxed">
+                        GPT에게 진짜 갈비맛을 알려줄 시간! 🔥
+                        <br />
+                        <span className="text-surface-200/50">
+                            먼저 본인의 이름을 선택해 주세요.
+                            <br />
+                            그리고 단계별 미션을 수행해 주세요.
+                        </span>
                     </p>
                 </header>
 
                 {/* Info Card */}
-                <div className="glass-card p-4 mb-4 bg-gradient-to-r from-primary-500/15 to-accent-500/10 border-primary-500/30 animate-slide-up"
+                <div className="glass-card p-4 mb-4 bg-gradient-to-r from-orange-500/15 to-amber-500/10 border-orange-500/20 animate-slide-up"
                      style={{ animationDelay: "0.1s" }}>
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center font-bold text-white text-lg">
-                            📋
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center font-bold text-white text-lg">
+                            🥩
                         </div>
                         <div>
-                            <p className="font-semibold text-primary-300">테스터 목록</p>
+                            <p className="font-semibold text-orange-300">서포터즈 목록</p>
                             <p className="text-xs text-surface-200/50">
                                 총 {users.length}명 · 이름을 클릭하면 미션 페이지로 이동합니다
                             </p>
@@ -151,7 +165,7 @@ export default function HomePage() {
                                                 className="flex items-center gap-3 flex-1 min-w-0"
                                             >
                                                 {/* Number badge */}
-                                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500/20 to-primary-600/10 flex items-center justify-center text-sm font-semibold text-primary-300 flex-shrink-0 border border-primary-500/20">
+                                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500/20 to-amber-600/10 flex items-center justify-center text-sm font-semibold text-orange-300 flex-shrink-0 border border-orange-500/20">
                                                     {i + 1}
                                                 </div>
                                                 <div className="min-w-0 flex-1">
