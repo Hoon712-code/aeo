@@ -104,7 +104,7 @@ export default function HomePage() {
                         <div>
                             <p className="font-semibold text-orange-300">서포터즈 목록</p>
                             <p className="text-xs text-surface-200/50">
-                                총 {users.length}명 · 이름을 클릭하면 미션 페이지로 이동합니다
+                                처음오신 분은 하단에 있는 &quot;테스터&quot; 이름을 본인의 이름으로 수정한 뒤, 클릭하시기 바랍니다.
                             </p>
                         </div>
                     </div>
