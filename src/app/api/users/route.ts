@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
                 sort_key: labelToSortKey(label),
             };
         })
-        .sort((a, b) => a.sort_key - b.sort_key);
+        .sort((a, b) => (a.label || "").localeCompare(b.label || ""));
 
     return NextResponse.json({ users: enrichedUsers });
 }

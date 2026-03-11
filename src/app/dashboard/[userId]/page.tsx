@@ -133,8 +133,16 @@ export default function DashboardPage() {
         );
     }
 
+    // Mask the middle character(s) of a name: 홍정의 → 홍*의
+    const maskName = (name: string) => {
+        if (!name || name.length <= 1) return name;
+        if (name.length === 2) return name[0] + "*";
+        return name[0] + "*".repeat(name.length - 2) + name[name.length - 1];
+    };
+    const rawName = data.user.display_name || "테스터";
+    const maskedName = rawName === "테스터" ? rawName : maskName(rawName);
     const fullName = data.user.label
-        ? `${data.user.display_name || "테스터"}_${data.user.label}`
+        ? `${maskedName}_${data.user.label}`
         : data.user.name;
     const progressPercent = data.totalSteps > 0
         ? Math.round((data.completedSteps / data.totalSteps) * 100)
@@ -165,9 +173,6 @@ export default function DashboardPage() {
                 <div className="glass-card p-4 mb-5 animate-slide-up" style={{ animationDelay: "0.1s" }}>
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium px-2 py-1 rounded-lg bg-primary-500/20 text-primary-300 border border-primary-500/30">
-                                {data.user.group}그룹
-                            </span>
                             <span className="text-sm text-surface-200/60">전체 진행률</span>
                         </div>
                         <span className="text-sm font-semibold text-white/80">
