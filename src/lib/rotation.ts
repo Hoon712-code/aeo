@@ -1,15 +1,15 @@
 // Group rotation schedule
-// 월(Mon): A, C / 화(Tue): B, D / 수(Wed): C, E / 목(Thu): A, D / 금(Fri): B, E
+// 월(Mon): A / 화(Tue): B / 수(Wed): C / 목(Thu): D / 금(Fri): E
 // 주말(Sat, Sun): No groups active
 
 type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 const ROTATION_SCHEDULE: Record<number, string[]> = {
-    1: ["A", "C"], // Monday
-    2: ["B", "D"], // Tuesday
-    3: ["C", "E"], // Wednesday
-    4: ["A", "D"], // Thursday
-    5: ["B", "E"], // Friday
+    1: ["A"], // Monday
+    2: ["B"], // Tuesday
+    3: ["C"], // Wednesday
+    4: ["D"], // Thursday
+    5: ["E"], // Friday
 };
 
 const DAY_NAMES_KR: Record<number, string> = {
