@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
-import { isGroupActiveToday, getTodayString } from "@/lib/rotation";
 
 export async function POST(request: NextRequest) {
     try {

@@ -1,17 +1,8 @@
-// Group rotation: determines D1 (start day) for each group
-// 월(Mon): A / 화(Tue): B / 수(Wed): C / 목(Thu): D / 금(Fri): E
-// After D1, rounds unlock based on completion + required gap
+// Rotation logic V2: Individual start dates (no group-based scheduling)
+// Each tester starts on their own D1 whenever they want.
+// After completing round N, wait the specified gap before round N+1.
 
 type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
-
-// Each group's active day of week (for starting D1)
-const GROUP_START_DAY: Record<string, number> = {
-    A: 1, // Monday
-    B: 2, // Tuesday
-    C: 3, // Wednesday
-    D: 4, // Thursday
-    E: 5, // Friday
-};
 
 const DAY_NAMES_KR: Record<number, string> = {
     0: "일요일",
@@ -40,28 +31,6 @@ const ROUND_NAMES: Record<number, string> = {
     5: "5라운드 — 정착",
 };
 
-export function getGroupStartDay(group: string): number {
-    return GROUP_START_DAY[group.toUpperCase()] ?? 1;
-}
-
-export function isGroupActiveToday(group: string): boolean {
-    const today = new Date().getDay();
-    return today === getGroupStartDay(group);
-}
-
-export function getNextActiveDay(group: string): string {
-    const today = new Date().getDay();
-    const startDay = getGroupStartDay(group);
-    if (today === startDay) return "오늘";
-    const daysUntil = (startDay - today + 7) % 7;
-    return `${DAY_NAMES_KR[startDay]} (${daysUntil}일 후)`;
-}
-
-export function getGroupSchedule(group: string): string[] {
-    const day = getGroupStartDay(group);
-    return [DAY_NAMES_KR[day]];
-}
-
 export function getRoundGap(completedRound: number): number {
     return ROUND_GAPS[completedRound] ?? 1;
 }
@@ -77,7 +46,6 @@ export function getNextRoundAvailableDate(
 ): Date {
     const gap = getRoundGap(completedRound);
     const baseDate = new Date(completedAt);
-    // Set to start of next day + gap
     const available = new Date(baseDate);
     available.setDate(available.getDate() + gap);
     available.setHours(0, 0, 0, 0);

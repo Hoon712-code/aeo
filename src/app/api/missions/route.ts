@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
-import { getTodayString, getNextRoundAvailableDate, formatDateKR, getRoundName, isGroupActiveToday, getNextActiveDay } from "@/lib/rotation";
+import { getTodayString, getNextRoundAvailableDate, formatDateKR, getRoundName } from "@/lib/rotation";
 import { generatePrompt, labelToIndex } from "@/lib/prompt-generator";
 
 export async function GET(request: NextRequest) {
@@ -55,7 +55,6 @@ export async function GET(request: NextRequest) {
         const allDone = roundMissions.every((m) => completedMissionIds.has(m.id));
         if (allDone) {
             completedRounds = r;
-            // Find when the last step of this round was completed
             const step3Mission = roundMissions.find((m) => m.step === 3);
             if (step3Mission) {
                 const log = (userLogs || []).find((l) => l.mission_id === step3Mission.id);
@@ -82,23 +81,16 @@ export async function GET(request: NextRequest) {
         });
     }
 
-    // Current round = completedRounds + 1
     const currentRound = completedRounds + 1;
 
     // Check round availability based on timing
+    // Round 1: always available (anyone can start anytime)
+    // Rounds 2-5: check gap from previous round completion
     let isAvailable = true;
     let waitMessage = "";
     let roundAvailableDate: string | null = null;
 
-    if (currentRound === 1) {
-        // Round 1: available on group's start day or any day after
-        if (!isGroupActiveToday(user.group) && completedSteps === 0) {
-            // Haven't started yet and not their start day
-            isAvailable = false;
-            waitMessage = `1라운드는 ${getNextActiveDay(user.group)}에 시작됩니다.`;
-        }
-    } else {
-        // Rounds 2-5: check gap from previous round completion
+    if (currentRound > 1) {
         const prevCompletedAt = roundCompletionDates[currentRound - 1];
         if (prevCompletedAt) {
             const availDate = getNextRoundAvailableDate(currentRound - 1, prevCompletedAt);
@@ -123,7 +115,6 @@ export async function GET(request: NextRequest) {
     }
     if (currentStep > 3) currentStep = 3;
 
-    // Get the current mission
     const currentMission = roundMissions.find((m) => m.step === currentStep) || null;
 
     // Generate personalized prompt
@@ -132,7 +123,6 @@ export async function GET(request: NextRequest) {
         ? generatePrompt(currentMission.round, currentMission.step, userIndex, currentMission.prompt_template)
         : "";
 
-    // Check if today's steps are already done (for showing "already done today" state)
     const today = getTodayString();
     const todayLogs = (userLogs || []).filter((l) => {
         const logDate = new Date(l.completed_at).toISOString().split("T")[0];

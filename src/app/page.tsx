@@ -8,38 +8,26 @@ interface User {
     name: string;
     group: string;
     display_name: string;
+    masked_name: string;
     label: string;
     full_name: string;
+    completed_rounds: number;
 }
 
-const GROUPS = ["A", "B", "C", "D", "E"];
-const GROUP_COLORS: Record<string, { bg: string; border: string; text: string; active: string }> = {
-    A: { bg: "from-blue-500/20 to-blue-600/10", border: "border-blue-500/30", text: "text-blue-300", active: "bg-blue-500" },
-    B: { bg: "from-purple-500/20 to-purple-600/10", border: "border-purple-500/30", text: "text-purple-300", active: "bg-purple-500" },
-    C: { bg: "from-emerald-500/20 to-emerald-600/10", border: "border-emerald-500/30", text: "text-emerald-300", active: "bg-emerald-500" },
-    D: { bg: "from-amber-500/20 to-amber-600/10", border: "border-amber-500/30", text: "text-amber-300", active: "bg-amber-500" },
-    E: { bg: "from-rose-500/20 to-rose-600/10", border: "border-rose-500/30", text: "text-rose-300", active: "bg-rose-500" },
-};
-
-const GROUP_DAYS: Record<string, string> = {
-    A: "월요일", B: "화요일", C: "수요일", D: "목요일", E: "금요일",
-};
-
 export default function HomePage() {
-    const [selectedGroup, setSelectedGroup] = useState<string>("A");
     const [users, setUsers] = useState<User[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [editingUser, setEditingUser] = useState<string | null>(null);
     const [newName, setNewName] = useState("");
 
     useEffect(() => {
-        fetchUsers(selectedGroup);
-    }, [selectedGroup]);
+        fetchUsers();
+    }, []);
 
-    const fetchUsers = async (group: string) => {
+    const fetchUsers = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/users?group=${group}`);
+            const res = await fetch("/api/users");
             const data = await res.json();
             if (res.ok) {
                 setUsers(data.users || []);
@@ -66,7 +54,7 @@ export default function HomePage() {
                 toast.success(data.message);
                 setEditingUser(null);
                 setNewName("");
-                fetchUsers(selectedGroup);
+                fetchUsers();
             } else {
                 toast.error(data.error);
             }
@@ -74,8 +62,6 @@ export default function HomePage() {
             toast.error("이름 변경에 실패했습니다.");
         }
     };
-
-    const colors = GROUP_COLORS[selectedGroup];
 
     return (
         <main className="min-h-screen min-h-[100dvh] p-4 md:p-8">
@@ -90,41 +76,21 @@ export default function HomePage() {
                         <span className="gradient-text">AI 훈련</span> 미션
                     </h1>
                     <p className="text-surface-200/60 text-sm mt-2">
-                        그룹을 선택하고 본인의 이름을 찾아주세요
+                        본인의 이름을 찾아 미션을 시작하세요
                     </p>
                 </header>
 
-                {/* Group Tabs */}
-                <div className="flex gap-1.5 p-1.5 bg-white/3 rounded-2xl mb-6 animate-slide-up">
-                    {GROUPS.map((g) => (
-                        <button
-                            key={g}
-                            onClick={() => setSelectedGroup(g)}
-                            className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${
-                                selectedGroup === g
-                                    ? `${GROUP_COLORS[g].active} text-white shadow-lg scale-[1.02]`
-                                    : "text-surface-200/50 hover:text-white hover:bg-white/5"
-                            }`}
-                        >
-                            {g}
-                            <span className="block text-[10px] font-normal opacity-70 mt-0.5">
-                                {GROUP_DAYS[g]}
-                            </span>
-                        </button>
-                    ))}
-                </div>
-
-                {/* Group Info */}
-                <div className={`glass-card p-4 mb-4 bg-gradient-to-r ${colors.bg} ${colors.border} animate-slide-up`}
+                {/* Info Card */}
+                <div className="glass-card p-4 mb-4 bg-gradient-to-r from-primary-500/15 to-accent-500/10 border-primary-500/30 animate-slide-up"
                      style={{ animationDelay: "0.1s" }}>
                     <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl ${colors.active} flex items-center justify-center font-bold text-white`}>
-                            {selectedGroup}
+                        <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center font-bold text-white text-lg">
+                            📋
                         </div>
                         <div>
-                            <p className={`font-semibold ${colors.text}`}>{selectedGroup}그룹</p>
+                            <p className="font-semibold text-primary-300">테스터 목록</p>
                             <p className="text-xs text-surface-200/50">
-                                시작일: 매주 {GROUP_DAYS[selectedGroup]} · {users.length}명
+                                총 {users.length}명 · 이름을 클릭하면 미션 페이지로 이동합니다
                             </p>
                         </div>
                     </div>
@@ -156,7 +122,7 @@ export default function HomePage() {
                                                 type="text"
                                                 value={newName}
                                                 onChange={(e) => setNewName(e.target.value)}
-                                                placeholder="새 이름 입력"
+                                                placeholder="본인의 풀네임을 입력해 주세요"
                                                 className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50"
                                                 autoFocus
                                                 onKeyDown={(e) => {
@@ -164,7 +130,6 @@ export default function HomePage() {
                                                     if (e.key === "Escape") { setEditingUser(null); setNewName(""); }
                                                 }}
                                             />
-                                            <span className="text-surface-200/30 text-sm">_{user.label}</span>
                                             <button
                                                 onClick={() => handleRename(user.id)}
                                                 className="px-3 py-2 bg-primary-600 text-white text-xs rounded-lg hover:bg-primary-500 transition-colors"
@@ -185,20 +150,31 @@ export default function HomePage() {
                                                 href={`/dashboard/${user.id}`}
                                                 className="flex items-center gap-3 flex-1 min-w-0"
                                             >
-                                                <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${colors.bg} flex items-center justify-center text-sm font-semibold ${colors.text} flex-shrink-0`}>
-                                                    {(user.display_name || "테")[0]}
+                                                {/* Number badge */}
+                                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500/20 to-primary-600/10 flex items-center justify-center text-sm font-semibold text-primary-300 flex-shrink-0 border border-primary-500/20">
+                                                    {i + 1}
                                                 </div>
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 flex-1">
                                                     <p className="text-sm font-medium text-white/80 truncate">
                                                         {user.full_name || user.name}
                                                     </p>
                                                 </div>
+                                                {/* Progress badge */}
+                                                <span className={`flex-shrink-0 text-xs font-semibold px-2 py-1 rounded-lg ${
+                                                    user.completed_rounds >= 5
+                                                        ? "bg-accent-500/20 text-accent-400 border border-accent-500/30"
+                                                        : user.completed_rounds > 0
+                                                            ? "bg-primary-500/15 text-primary-300 border border-primary-500/20"
+                                                            : "bg-white/5 text-surface-200/40 border border-white/5"
+                                                }`}>
+                                                    {user.completed_rounds}/5
+                                                </span>
                                             </a>
                                             <button
                                                 onClick={(e) => {
                                                     e.preventDefault();
                                                     setEditingUser(user.id);
-                                                    setNewName(user.display_name || "테스터");
+                                                    setNewName(user.display_name || "");
                                                 }}
                                                 className="ml-2 p-2 text-surface-200/30 hover:text-primary-400 transition-colors flex-shrink-0"
                                                 title="이름 변경"
