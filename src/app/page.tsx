@@ -72,7 +72,7 @@ export default function HomePage() {
                     <div className="w-24 h-24 rounded-2xl overflow-hidden mx-auto mb-5 shadow-lg shadow-orange-500/20 ring-2 ring-orange-400/20">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                            src="/seolya-galbi.png"
+                            src="/seolya-galbi.jpg"
                             alt="설야갈비"
                             className="w-full h-full object-cover"
                         />
@@ -190,12 +190,9 @@ export default function HomePage() {
                                                     setEditingUser(user.id);
                                                     setNewName(user.display_name || "");
                                                 }}
-                                                className="ml-2 p-2 text-surface-200/30 hover:text-primary-400 transition-colors flex-shrink-0"
-                                                title="이름 변경"
+                                                className="ml-2 px-3 py-1.5 bg-orange-500/20 text-orange-300 text-xs font-semibold rounded-lg border border-orange-500/30 hover:bg-orange-500/30 hover:text-orange-200 transition-colors flex-shrink-0"
                                             >
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                                </svg>
+                                                수정
                                             </button>
                                         </div>
                                     )}
