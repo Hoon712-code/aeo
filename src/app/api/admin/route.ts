@@ -23,33 +23,47 @@ export async function GET() {
         .select("*")
         .order("completed_at", { ascending: false });
 
-    // Get total missions
+    // Get total missions count
     const { count: totalMissions } = await supabase
         .from("missions")
         .select("*", { count: "exact", head: true });
 
-    // Get all missions for week/step mapping
+    // Get all missions for round/step mapping
     const { data: missions } = await supabase
         .from("missions")
         .select("*")
-        .order("week", { ascending: true })
+        .order("round", { ascending: true })
         .order("step", { ascending: true });
 
     // Enrich user data
     const enrichedUsers = (users || []).map((user) => {
         const userLogs = (allLogs || []).filter((log) => log.user_id === user.id);
-        const completedCount = userLogs.length;
+        const completedSteps = userLogs.length;
 
-        // Determine current week/step
-        let currentWeek = 1;
+        // Determine completed rounds
+        let completedRounds = 0;
+        if (missions) {
+            for (let r = 1; r <= 5; r++) {
+                const roundMissions = missions.filter((m) => m.round === r);
+                const allDone = roundMissions.every((m) =>
+                    userLogs.some((l) => l.mission_id === m.id)
+                );
+                if (allDone) completedRounds = r;
+                else break;
+            }
+        }
+
+        // Current round/step
+        const currentRound = Math.min(completedRounds + 1, 5);
         let currentStep = 1;
-        if (missions && completedCount < missions.length) {
-            const nextMission = missions[completedCount];
-            currentWeek = nextMission.week;
-            currentStep = nextMission.step;
-        } else if (missions && completedCount >= missions.length) {
-            currentWeek = 4;
-            currentStep = 1;
+        if (missions) {
+            const roundMissions = missions.filter((m) => m.round === currentRound);
+            for (const m of roundMissions) {
+                if (userLogs.some((l) => l.mission_id === m.id)) {
+                    currentStep = m.step + 1;
+                }
+            }
+            if (currentStep > 3) currentStep = 3;
         }
 
         // Check if completed today
@@ -58,13 +72,20 @@ export async function GET() {
             return logDate === today;
         });
 
+        const displayName = user.display_name || "테스터";
+        const label = user.label || "";
+
         return {
             ...user,
-            completed_count: completedCount,
-            current_week: currentWeek,
+            display_name: displayName,
+            label,
+            full_name: label ? `${displayName}_${label}` : user.name,
+            completed_rounds: completedRounds,
+            completed_steps: completedSteps,
+            current_round: currentRound,
             current_step: currentStep,
+            total_steps: totalMissions ?? 15,
             completed_today: completedToday,
-            total_missions: totalMissions ?? 0,
         };
     });
 
@@ -72,10 +93,12 @@ export async function GET() {
     const recentLogs = (allLogs || []).slice(0, 50).map((log) => {
         const user = (users || []).find((u) => u.id === log.user_id);
         const mission = (missions || []).find((m) => m.id === log.mission_id);
+        const displayName = user?.display_name || "테스터";
+        const label = user?.label || "";
         return {
             ...log,
-            user_name: user?.name || "Unknown",
-            mission_week: mission?.week || 0,
+            user_name: label ? `${displayName}_${label}` : (user?.name || "Unknown"),
+            mission_round: mission?.round || 0,
             mission_step: mission?.step || 0,
         };
     });

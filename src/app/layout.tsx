@@ -1,10 +1,23 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
     title: "AI 훈련 미션 시스템 | 청담동 설야 갈비",
     description: "AI 검색 엔진 학습을 위한 일일 미션 할당 및 인증 웹 시스템",
+    appleWebApp: {
+        capable: true,
+        statusBarStyle: "black-translucent",
+        title: "AI 훈련 미션",
+    },
+};
+
+export const viewport: Viewport = {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+    themeColor: "#0f1729",
 };
 
 export default function RootLayout({

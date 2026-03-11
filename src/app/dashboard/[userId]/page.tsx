@@ -2,19 +2,48 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import toast from "react-hot-toast";
-import type { UserDashboardData } from "@/lib/types";
+import toast, { Toaster } from "react-hot-toast";
 
-const AI_LINKS: Record<string, string> = {
-    ChatGPT: "https://chat.openai.com",
-    Gemini: "https://gemini.google.com",
-    Claude: "https://claude.ai",
+interface Mission {
+    id: number;
+    round: number;
+    step: number;
+    target_ai: string;
+    instruction: string;
+    prompt_template: string;
+    completed: boolean;
+    personalizedPrompt: string;
+}
+
+interface DashboardData {
+    user: { id: string; name: string; group: string; display_name: string; label: string };
+    currentRound: number;
+    currentStep: number;
+    mission: Mission | null;
+    personalizedPrompt: string;
+    roundAvailableDate: string | null;
+    isAvailable: boolean;
+    waitMessage: string;
+    completedRounds: number;
+    completedSteps: number;
+    totalSteps: number;
+    allComplete: boolean;
+    todayCompletedSteps?: number;
+    roundMissions?: Mission[];
+}
+
+const ROUND_THEMES: Record<number, { emoji: string; label: string; color: string }> = {
+    1: { emoji: "🟢", label: "첫인상 — 맛집 탐색", color: "from-green-500/20 to-green-600/10 border-green-500/30" },
+    2: { emoji: "🔵", label: "심화 — 구체적 정보", color: "from-blue-500/20 to-blue-600/10 border-blue-500/30" },
+    3: { emoji: "🟣", label: "확장 — 코스 구성", color: "from-purple-500/20 to-purple-600/10 border-purple-500/30" },
+    4: { emoji: "🟠", label: "평판 — 후기/리뷰", color: "from-amber-500/20 to-amber-600/10 border-amber-500/30" },
+    5: { emoji: "🔴", label: "정착 — 추천/재방문", color: "from-rose-500/20 to-rose-600/10 border-rose-500/30" },
 };
 
 export default function DashboardPage() {
     const params = useParams();
     const userId = params.userId as string;
-    const [data, setData] = useState<UserDashboardData | null>(null);
+    const [data, setData] = useState<DashboardData | null>(null);
     const [loading, setLoading] = useState(true);
     const [snippet, setSnippet] = useState("");
     const [submitting, setSubmitting] = useState(false);
@@ -24,20 +53,15 @@ export default function DashboardPage() {
         try {
             const res = await fetch(`/api/missions?userId=${userId}`);
             const result = await res.json();
-            if (res.ok) {
-                setData(result);
-            } else {
-                toast.error(result.error || "데이터를 불러올 수 없습니다.");
-            }
+            if (res.ok) setData(result);
+            else toast.error(result.error || "데이터를 불러올 수 없습니다.");
         } catch {
             toast.error("서버에 연결할 수 없습니다.");
         }
         setLoading(false);
     }, [userId]);
 
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+    useEffect(() => { fetchData(); }, [fetchData]);
 
     const handleCopy = async (text: string) => {
         try {
@@ -50,16 +74,11 @@ export default function DashboardPage() {
         }
     };
 
-    const handleSubmit = async () => {
-        if (!snippet.trim()) {
-            toast.error("AI 답변 내용을 입력해 주세요.");
+    const handleSubmit = async (missionId: number, isLastStep: boolean) => {
+        if (isLastStep && !snippet.trim()) {
+            toast.error("AI 답변을 붙여넣어 주세요.");
             return;
         }
-        if (snippet.trim().length < 5) {
-            toast.error("AI 답변 내용이 너무 짧습니다. 최소 5자 이상 입력해 주세요.");
-            return;
-        }
-        if (!data?.mission) return;
 
         setSubmitting(true);
         try {
@@ -68,13 +87,14 @@ export default function DashboardPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     userId,
-                    missionId: data.mission.id,
-                    aiResponseSnippet: snippet.trim(),
+                    missionId,
+                    aiResponseSnippet: isLastStep ? snippet.trim() : null,
+                    isLastStep,
                 }),
             });
             const result = await res.json();
             if (res.ok) {
-                toast.success(result.message || "미션 완료! 🎉");
+                toast.success(result.message);
                 setSnippet("");
                 fetchData();
             } else {
@@ -88,7 +108,8 @@ export default function DashboardPage() {
 
     if (loading) {
         return (
-            <main className="min-h-screen flex items-center justify-center">
+            <main className="min-h-screen min-h-[100dvh] flex items-center justify-center">
+                <Toaster position="top-center" />
                 <div className="text-center animate-fade-in">
                     <div className="w-12 h-12 border-3 border-primary-400/30 border-t-primary-400 rounded-full animate-spin mx-auto mb-4" />
                     <p className="text-surface-200/60 text-sm">미션 정보를 불러오는 중...</p>
@@ -99,225 +120,273 @@ export default function DashboardPage() {
 
     if (!data) {
         return (
-            <main className="min-h-screen flex items-center justify-center p-4">
+            <main className="min-h-screen min-h-[100dvh] flex items-center justify-center p-4">
+                <Toaster position="top-center" />
                 <div className="glass-card p-8 max-w-md text-center animate-slide-up">
                     <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                        </svg>
+                        <span className="text-3xl">⚠️</span>
                     </div>
                     <h2 className="text-lg font-bold mb-2">유저를 찾을 수 없습니다</h2>
-                    <p className="text-surface-200/60 text-sm mb-4">올바른 링크인지 확인해 주세요.</p>
-                    <a href="/" className="gradient-btn inline-block text-sm">홈으로 돌아가기</a>
+                    <a href="/" className="gradient-btn inline-block text-sm mt-4">홈으로 돌아가기</a>
                 </div>
             </main>
         );
     }
 
-    const progressPercent = data.totalMissions > 0
-        ? Math.round((data.completedCount / data.totalMissions) * 100)
+    const fullName = data.user.label
+        ? `${data.user.display_name || "테스터"}_${data.user.label}`
+        : data.user.name;
+    const progressPercent = data.totalSteps > 0
+        ? Math.round((data.completedSteps / data.totalSteps) * 100)
         : 0;
+    const theme = ROUND_THEMES[data.currentRound] || ROUND_THEMES[1];
+    const roundMissions = data.roundMissions || [];
+    const currentMission = roundMissions.find((m) => !m.completed);
+    const isLastStep = currentMission?.step === 3;
 
     return (
-        <main className="min-h-screen p-4 md:p-8">
-            <div className="max-w-2xl mx-auto">
+        <main className="min-h-screen min-h-[100dvh] p-4 md:p-8">
+            <Toaster position="top-center" />
+            <div className="max-w-lg mx-auto">
                 {/* Header */}
-                <header className="mb-8 animate-fade-in">
-                    <a href="/" className="inline-flex items-center gap-2 text-sm text-surface-200/40 hover:text-primary-400 transition-colors mb-6">
+                <header className="mb-6 animate-fade-in">
+                    <a href="/" className="inline-flex items-center gap-2 text-sm text-surface-200/40 hover:text-primary-400 transition-colors mb-4">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                         </svg>
                         홈으로
                     </a>
-                    <h1 className="text-2xl md:text-3xl font-extrabold">
-                        안녕하세요, <span className="gradient-text">{data.user.name}</span>님!
+                    <h1 className="text-xl md:text-2xl font-extrabold">
+                        안녕하세요, <span className="gradient-text">{fullName}</span>님!
                     </h1>
-                    <p className="text-surface-200/60 mt-2">오늘의 AI 훈련 미션입니다.</p>
                 </header>
 
                 {/* Progress Card */}
-                <div className="glass-card p-5 mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-primary-500/20 text-primary-300 border border-primary-500/30">
+                <div className="glass-card p-4 mb-5 animate-slide-up" style={{ animationDelay: "0.1s" }}>
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium px-2 py-1 rounded-lg bg-primary-500/20 text-primary-300 border border-primary-500/30">
                                 {data.user.group}그룹
                             </span>
-                            <span className="text-sm text-surface-200/60">
-                                전체 진행률
-                            </span>
+                            <span className="text-sm text-surface-200/60">전체 진행률</span>
                         </div>
                         <span className="text-sm font-semibold text-white/80">
-                            {data.completedCount}/{data.totalMissions}
+                            {data.completedSteps}/{data.totalSteps}
                         </span>
                     </div>
                     <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
                         <div
-                            className="h-full bg-gradient-to-r from-primary-500 to-accent-500 rounded-full transition-all duration-700 ease-out"
+                            className="h-full bg-gradient-to-r from-primary-500 to-accent-500 rounded-full transition-all duration-700"
                             style={{ width: `${progressPercent}%` }}
                         />
                     </div>
+                    {/* Round dots */}
+                    <div className="flex justify-between mt-3">
+                        {[1, 2, 3, 4, 5].map((r) => (
+                            <div key={r} className="flex flex-col items-center gap-1">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                                    r <= data.completedRounds
+                                        ? "bg-accent-500 text-white"
+                                        : r === data.currentRound
+                                            ? "bg-primary-500/30 text-primary-300 ring-2 ring-primary-500/50"
+                                            : "bg-white/5 text-surface-200/30"
+                                }`}>
+                                    {r <= data.completedRounds ? "✓" : r}
+                                </div>
+                                <span className="text-[10px] text-surface-200/30">R{r}</span>
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
-                {/* Rest Day Card */}
-                {!data.isActive && (
+                {/* All Complete */}
+                {data.allComplete && (
                     <div className="glass-card p-8 text-center animate-slide-up" style={{ animationDelay: "0.2s" }}>
-                        <div className="w-20 h-20 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-5">
-                            <span className="text-4xl">☕</span>
-                        </div>
-                        <h2 className="text-xl font-bold mb-2">오늘은 휴식일입니다</h2>
-                        <p className="text-surface-200/60 text-sm leading-relaxed mb-5">
-                            다음 활동일은 <span className="text-amber-400 font-semibold">{data.nextActiveDay}</span>입니다.
-                            <br />편히 쉬고 다시 접속해 주세요!
+                        <span className="text-5xl block mb-4">🏆</span>
+                        <h2 className="text-xl font-bold mb-2 gradient-text">모든 미션을 완료했습니다!</h2>
+                        <p className="text-surface-200/60 text-sm">5라운드 15개 미션을 모두 성공적으로 완료했습니다. 감사합니다!</p>
+                    </div>
+                )}
+
+                {/* Waiting for round */}
+                {!data.allComplete && !data.isAvailable && (
+                    <div className="glass-card p-8 text-center animate-slide-up" style={{ animationDelay: "0.2s" }}>
+                        <span className="text-5xl block mb-4">⏳</span>
+                        <h2 className="text-lg font-bold mb-2">다음 라운드 대기 중</h2>
+                        <p className="text-surface-200/60 text-sm leading-relaxed mb-4">
+                            {data.waitMessage}
                         </p>
                         <div className="inline-flex items-center gap-2 text-xs text-surface-200/30 bg-white/3 px-4 py-2 rounded-xl">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            완료한 미션: {data.completedCount}개
+                            완료한 단계: {data.completedSteps}/{data.totalSteps}
                         </div>
                     </div>
                 )}
 
-                {/* Already Completed Today */}
-                {data.isActive && data.hasCompletedToday && (
-                    <div className="glass-card p-8 text-center animate-slide-up" style={{ animationDelay: "0.2s" }}>
-                        <div className="w-20 h-20 rounded-2xl bg-accent-500/10 flex items-center justify-center mx-auto mb-5">
-                            <span className="text-4xl">✅</span>
-                        </div>
-                        <h2 className="text-xl font-bold mb-2 text-accent-400">오늘 미션을 완료했습니다!</h2>
-                        <p className="text-surface-200/60 text-sm leading-relaxed">
-                            수고하셨습니다. 내일 새로운 미션이 대기하고 있습니다.
-                        </p>
-                    </div>
-                )}
-
-                {/* All Missions Complete */}
-                {data.isActive && !data.hasCompletedToday && !data.mission && (
-                    <div className="glass-card p-8 text-center animate-slide-up" style={{ animationDelay: "0.2s" }}>
-                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500/20 to-accent-500/20 flex items-center justify-center mx-auto mb-5">
-                            <span className="text-4xl">🏆</span>
-                        </div>
-                        <h2 className="text-xl font-bold mb-2 gradient-text">모든 미션을 완료했습니다!</h2>
-                        <p className="text-surface-200/60 text-sm leading-relaxed">
-                            모든 AI 훈련 미션을 성공적으로 완료했습니다. 감사합니다!
-                        </p>
-                    </div>
-                )}
-
-                {/* Active Mission Card */}
-                {data.isActive && !data.hasCompletedToday && data.mission && (
-                    <div className="space-y-5 animate-slide-up" style={{ animationDelay: "0.2s" }}>
-                        {/* Mission Info */}
-                        <div className="glass-card p-6">
-                            <div className="flex items-center gap-3 mb-5">
-                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
-                                    <span className="text-sm font-bold">{data.mission.week}-{data.mission.step}</span>
-                                </div>
+                {/* Active Mission */}
+                {!data.allComplete && data.isAvailable && (
+                    <div className="space-y-4 animate-slide-up" style={{ animationDelay: "0.2s" }}>
+                        {/* Round Header */}
+                        <div className={`glass-card p-4 bg-gradient-to-r ${theme.color}`}>
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">{theme.emoji}</span>
                                 <div>
-                                    <h2 className="font-bold text-white/90">{data.mission.week}주차 {data.mission.step}스텝</h2>
-                                    <p className="text-xs text-surface-200/50">미션 카드</p>
+                                    <h2 className="font-bold text-white/90">{data.currentRound}라운드</h2>
+                                    <p className="text-xs text-surface-200/50">{theme.label}</p>
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Target AI */}
-                            <div className="mb-5">
-                                <label className="text-xs font-medium text-surface-200/50 uppercase tracking-wider mb-2 block">
-                                    접속할 AI
-                                </label>
-                                <a
-                                    href={AI_LINKS[data.mission.target_ai] || AI_LINKS.ChatGPT}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="gradient-btn inline-flex items-center gap-2 text-sm"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                    </svg>
-                                    {data.mission.target_ai} 열기
-                                </a>
+                        {/* Step Progress Bar */}
+                        <div className="glass-card p-4">
+                            <p className="text-xs text-surface-200/50 mb-3">오늘의 미션 진행도</p>
+                            <div className="flex gap-2">
+                                {[1, 2, 3].map((s) => {
+                                    const mission = roundMissions.find((m) => m.step === s);
+                                    const isDone = mission?.completed;
+                                    const isCurrent = !isDone && (!roundMissions.find((m) => m.step === s - 1) || roundMissions.find((m) => m.step === s - 1)?.completed);
+                                    return (
+                                        <div key={s} className="flex-1">
+                                            <div className={`h-2 rounded-full transition-all duration-500 ${
+                                                isDone
+                                                    ? "bg-accent-500"
+                                                    : isCurrent
+                                                        ? "bg-primary-500/50 animate-pulse"
+                                                        : "bg-white/5"
+                                            }`} />
+                                            <p className={`text-center text-[10px] mt-1 ${
+                                                isDone ? "text-accent-400" : isCurrent ? "text-primary-300" : "text-surface-200/20"
+                                            }`}>
+                                                {isDone ? "✓ 완료" : `${s}/3`}
+                                            </p>
+                                        </div>
+                                    );
+                                })}
                             </div>
+                        </div>
 
-                            {/* Instruction */}
-                            <div className="mb-5">
-                                <label className="text-xs font-medium text-surface-200/50 uppercase tracking-wider mb-2 block">
-                                    오늘의 지령
-                                </label>
-                                <div className="bg-primary-500/5 border border-primary-500/20 rounded-xl p-4">
-                                    <p className="text-sm text-white/80 leading-relaxed">
-                                        {data.mission.instruction}
-                                    </p>
-                                    <p className="text-xs text-surface-200/40 mt-2">
-                                        💡 괄호 안의 내용은 본인 상황에 맞게 조금씩 바꿔서 자연스럽게 물어보세요.
-                                    </p>
+                        {/* Current Mission Card */}
+                        {currentMission && (
+                            <div className="glass-card p-5">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
+                                        <span className="text-sm font-bold">{currentMission.step}/3</span>
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-white/90">
+                                            질문 {currentMission.step}/3
+                                        </h3>
+                                        <p className="text-xs text-surface-200/50">
+                                            {currentMission.step === 3 ? "마지막 질문 — 답변 인증 필요" : "ChatGPT에 질문하세요"}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
 
-                            {/* Prompt Template */}
-                            <div>
-                                <label className="text-xs font-medium text-surface-200/50 uppercase tracking-wider mb-2 block">
-                                    참고 프롬프트
-                                </label>
-                                <div className="relative bg-white/3 border border-white/10 rounded-xl p-4 group">
-                                    <p className="text-sm text-white/70 leading-relaxed pr-16">
-                                        {data.mission.prompt_template}
-                                    </p>
-                                    <button
-                                        onClick={() => handleCopy(data.mission!.prompt_template)}
-                                        className="absolute top-3 right-3 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-surface-200/60 hover:text-white transition-all"
+                                {/* Instruction */}
+                                <div className="mb-4">
+                                    <label className="text-xs font-medium text-surface-200/50 uppercase tracking-wider mb-2 block">
+                                        오늘의 지령
+                                    </label>
+                                    <div className="bg-primary-500/5 border border-primary-500/20 rounded-xl p-3">
+                                        <p className="text-sm text-white/80 leading-relaxed">
+                                            {currentMission.instruction}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* ChatGPT Link */}
+                                <div className="mb-4">
+                                    <a
+                                        href="https://chat.openai.com"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="gradient-btn inline-flex items-center gap-2 text-sm"
                                     >
-                                        {copied ? (
-                                            <>
-                                                <svg className="w-3.5 h-3.5 text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                                </svg>
-                                                복사됨
-                                            </>
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                        ChatGPT 열기
+                                    </a>
+                                </div>
+
+                                {/* Prompt Template */}
+                                <div className="mb-4">
+                                    <label className="text-xs font-medium text-surface-200/50 uppercase tracking-wider mb-2 block">
+                                        참고 프롬프트
+                                    </label>
+                                    <div className="relative bg-white/3 border border-white/10 rounded-xl p-3 group">
+                                        <p className="text-sm text-white/70 leading-relaxed pr-14">
+                                            {currentMission.personalizedPrompt || currentMission.prompt_template}
+                                        </p>
+                                        <button
+                                            onClick={() => handleCopy(currentMission.personalizedPrompt || currentMission.prompt_template)}
+                                            className="absolute top-2.5 right-2.5 flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-surface-200/60 hover:text-white transition-all"
+                                        >
+                                            {copied ? (
+                                                <><svg className="w-3.5 h-3.5 text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>복사됨</>
+                                            ) : (
+                                                <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>복사</>
+                                            )}
+                                        </button>
+                                    </div>
+                                    <p className="text-[11px] text-surface-200/30 mt-1.5">
+                                        💡 위 프롬프트를 복사하여 ChatGPT에 입력하세요. 조금씩 바꿔서 자연스럽게 물어봐도 됩니다.
+                                    </p>
+                                </div>
+
+                                {/* Submit Section */}
+                                {isLastStep ? (
+                                    <div className="border-t border-white/5 pt-4">
+                                        <h4 className="font-semibold text-white/90 mb-1 text-sm">📋 인증하기</h4>
+                                        <p className="text-[11px] text-surface-200/40 mb-3">
+                                            ChatGPT의 마지막 답변 하단에 있는 <strong className="text-surface-200/60">📄 복사하기</strong> 버튼을 눌러 전체 답변을 복사한 뒤, 아래 입력란에 붙여넣어 주세요.
+                                        </p>
+                                        <textarea
+                                            value={snippet}
+                                            onChange={(e) => setSnippet(e.target.value)}
+                                            placeholder="ChatGPT의 답변을 여기에 붙여넣어 주세요..."
+                                            rows={4}
+                                            className="w-full px-3.5 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-surface-200/30 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all resize-none text-sm"
+                                        />
+                                        <button
+                                            onClick={() => handleSubmit(currentMission.id, true)}
+                                            disabled={submitting || !snippet.trim()}
+                                            className="gradient-btn success-btn w-full mt-3 flex items-center justify-center gap-2 text-sm"
+                                        >
+                                            {submitting ? (
+                                                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />제출 중...</>
+                                            ) : (
+                                                <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>라운드 완료</>
+                                            )}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => handleSubmit(currentMission.id, false)}
+                                        disabled={submitting}
+                                        className="gradient-btn w-full flex items-center justify-center gap-2 text-sm"
+                                    >
+                                        {submitting ? (
+                                            <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />처리 중...</>
                                         ) : (
-                                            <>
-                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                                                </svg>
-                                                복사
-                                            </>
+                                            <>질문 완료 → 다음 단계로</>
                                         )}
                                     </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Submission Form */}
-                        <div className="glass-card p-6">
-                            <h3 className="font-bold text-white/90 mb-1">인증하기</h3>
-                            <p className="text-xs text-surface-200/50 mb-4">
-                                AI가 대답한 내용 중 &lsquo;설야 갈비&rsquo;가 포함된 문장을 한 줄만 복사해서 붙여넣어 주세요.
-                            </p>
-                            <textarea
-                                value={snippet}
-                                onChange={(e) => setSnippet(e.target.value)}
-                                placeholder="AI의 답변 내용을 여기에 붙여넣어 주세요..."
-                                rows={4}
-                                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-surface-200/30 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all resize-none text-sm"
-                            />
-                            <button
-                                onClick={handleSubmit}
-                                disabled={submitting || !snippet.trim()}
-                                className="gradient-btn success-btn w-full mt-4 flex items-center justify-center gap-2 text-sm"
-                            >
-                                {submitting ? (
-                                    <>
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                        제출 중...
-                                    </>
-                                ) : (
-                                    <>
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                        </svg>
-                                        오늘의 임무 완료
-                                    </>
                                 )}
-                            </button>
-                        </div>
+                            </div>
+                        )}
+
+                        {/* All steps in this round are done */}
+                        {!currentMission && roundMissions.every((m) => m.completed) && (
+                            <div className="glass-card p-8 text-center">
+                                <span className="text-4xl block mb-3">✅</span>
+                                <h2 className="text-lg font-bold mb-2 text-accent-400">
+                                    {data.currentRound}라운드 완료!
+                                </h2>
+                                <p className="text-surface-200/60 text-sm">
+                                    수고하셨습니다. 다음 라운드가 곧 열립니다.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

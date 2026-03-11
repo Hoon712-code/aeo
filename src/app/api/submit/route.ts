@@ -1,22 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
-import { getTodayString, isGroupActiveToday } from "@/lib/rotation";
+import { isGroupActiveToday, getTodayString } from "@/lib/rotation";
 
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { userId, missionId, aiResponseSnippet } = body;
+        const { userId, missionId, aiResponseSnippet, isLastStep } = body;
 
-        if (!userId || !missionId || !aiResponseSnippet) {
+        if (!userId || !missionId) {
             return NextResponse.json(
-                { error: "userId, missionId, aiResponseSnippet are all required" },
+                { error: "userId, missionId are required" },
                 { status: 400 }
             );
         }
 
-        if (aiResponseSnippet.trim().length < 5) {
+        // For the last step (step 3), require AI response snippet
+        if (isLastStep && (!aiResponseSnippet || aiResponseSnippet.trim().length < 5)) {
             return NextResponse.json(
-                { error: "AI 답변 내용이 너무 짧습니다. 최소 5자 이상 입력해 주세요." },
+                { error: "AI 답변 내용을 붙여넣어 주세요. (최소 5자 이상)" },
                 { status: 400 }
             );
         }
@@ -34,28 +35,57 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "User not found" }, { status: 404 });
         }
 
-        // Check if group is active today
-        if (!isGroupActiveToday(user.group)) {
-            return NextResponse.json(
-                { error: "오늘은 활동일이 아닙니다." },
-                { status: 403 }
-            );
+        // Verify mission exists
+        const { data: mission, error: missionError } = await supabase
+            .from("missions")
+            .select("*")
+            .eq("id", missionId)
+            .single();
+
+        if (missionError || !mission) {
+            return NextResponse.json({ error: "Mission not found" }, { status: 404 });
         }
 
-        // Abuse prevention: check if already completed today
-        const today = getTodayString();
-        const { data: todayLogs } = await supabase
+        // Check if already completed this mission
+        const { data: existingLog } = await supabase
             .from("logs")
             .select("*")
             .eq("user_id", userId)
-            .gte("completed_at", `${today}T00:00:00`)
-            .lte("completed_at", `${today}T23:59:59`);
+            .eq("mission_id", missionId)
+            .single();
 
-        if (todayLogs && todayLogs.length > 0) {
+        if (existingLog) {
             return NextResponse.json(
-                { error: "오늘 이미 미션을 완료했습니다. 내일 다시 시도해 주세요." },
-                { status: 429 }
+                { error: "이 미션은 이미 완료되었습니다." },
+                { status: 409 }
             );
+        }
+
+        // Check previous steps in same round are completed
+        if (mission.step > 1) {
+            const { data: prevMissions } = await supabase
+                .from("missions")
+                .select("id")
+                .eq("round", mission.round)
+                .lt("step", mission.step);
+
+            if (prevMissions) {
+                for (const prev of prevMissions) {
+                    const { data: prevLog } = await supabase
+                        .from("logs")
+                        .select("id")
+                        .eq("user_id", userId)
+                        .eq("mission_id", prev.id)
+                        .single();
+
+                    if (!prevLog) {
+                        return NextResponse.json(
+                            { error: "이전 단계를 먼저 완료해 주세요." },
+                            { status: 403 }
+                        );
+                    }
+                }
+            }
         }
 
         // Insert log
@@ -64,7 +94,7 @@ export async function POST(request: NextRequest) {
             .insert({
                 user_id: userId,
                 mission_id: missionId,
-                ai_response_snippet: aiResponseSnippet.trim(),
+                ai_response_snippet: isLastStep ? aiResponseSnippet?.trim() : null,
             })
             .select()
             .single();
@@ -82,9 +112,15 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const isRoundComplete = mission.step === 3;
+        const message = isRoundComplete
+            ? `${mission.round}라운드를 완료했습니다! 🎉`
+            : `${mission.step}/3 단계 완료! 다음 단계로 진행하세요.`;
+
         return NextResponse.json({
             success: true,
-            message: "미션이 성공적으로 완료되었습니다! 🎉",
+            message,
+            isRoundComplete,
             log,
         });
     } catch {
