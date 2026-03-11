@@ -31,33 +31,47 @@ async function sendTelegramMessage(chatId: number, text: string, replyToMessageI
 async function askGemini(userMessage: string): Promise<string> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-    const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            contents: [
-                {
-                    parts: [
-                        {
-                            text: `당신은 친절하고 유능한 AI 비서입니다. 한국어로 답변해 주세요. 답변은 간결하고 핵심적으로 해주세요. 텔레그램 메신저에서 대화하고 있으므로 너무 길지 않게 답변해 주세요.\n\n사용자: ${userMessage}`,
-                        },
-                    ],
+    try {
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: `당신은 친절하고 유능한 AI 비서입니다. 한국어로 답변해 주세요. 답변은 간결하고 핵심적으로 해주세요. 텔레그램 메신저에서 대화하고 있으므로 너무 길지 않게 답변해 주세요.\n\n사용자: ${userMessage}`,
+                            },
+                        ],
+                    },
+                ],
+                generationConfig: {
+                    maxOutputTokens: 1024,
+                    temperature: 0.7,
                 },
-            ],
-            generationConfig: {
-                maxOutputTokens: 1024,
-                temperature: 0.7,
-            },
-        }),
-    });
+            }),
+        });
 
-    const data = await res.json();
+        console.log("Gemini API response status:", res.status);
 
-    if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error("Gemini API error response:", errorText);
+            return `API 오류 (${res.status}): ${errorText.substring(0, 200)}`;
+        }
+
+        const data = await res.json();
+        console.log("Gemini API response data:", JSON.stringify(data).substring(0, 500));
+
+        if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
+            return data.candidates[0].content.parts[0].text;
+        }
+
+        return "답변을 생성하지 못했습니다. 응답 형식: " + JSON.stringify(data).substring(0, 200);
+    } catch (error) {
+        console.error("Gemini fetch error:", error);
+        return "API 연결 오류: " + String(error).substring(0, 200);
     }
-
-    return "죄송합니다, 답변을 생성하지 못했습니다. 다시 시도해 주세요.";
 }
 
 // GET handler for debugging
