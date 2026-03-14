@@ -1,0 +1,139 @@
+import { chromium, Browser, BrowserContext } from "playwright";
+import { getProxyForUser, PROXY_ENABLED, VIEWPORTS, USER_AGENTS, LOCALES, TIMEZONES } from "./config";
+import { randInt, log } from "./human-behavior";
+
+/**
+ * Pick a random item from an array
+ */
+function pickRandom<T>(arr: T[]): T {
+  return arr[randInt(0, arr.length - 1)];
+}
+
+/**
+ * Generate a unique browser fingerprint for each user session.
+ * Each user gets a different combination of viewport, user agent, locale, etc.
+ */
+function generateFingerprint(userIndex: number) {
+  // Use index to deterministically vary, but add randomness too
+  const viewport = VIEWPORTS[(userIndex + randInt(0, 2)) % VIEWPORTS.length];
+  const userAgent = USER_AGENTS[(userIndex + randInt(0, 2)) % USER_AGENTS.length];
+  const locale = pickRandom(LOCALES);
+  const timezone = pickRandom(TIMEZONES);
+
+  return { viewport, userAgent, locale, timezone };
+}
+
+export interface BrowserSession {
+  browser: Browser;
+  context: BrowserContext;
+}
+
+/**
+ * Launch a stealthy browser with unique fingerprint and per-user proxy.
+ *
+ * @param userIndex  - Index for fingerprint & proxy variation
+ * @param useProxy   - Whether to use proxy (can be disabled for testing)
+ */
+export async function launchBrowser(
+  userIndex: number,
+  useProxy = true
+): Promise<BrowserSession> {
+  const fp = generateFingerprint(userIndex);
+
+  log(
+    `🌐 브라우저 시작 [User #${userIndex}] | ` +
+      `${fp.viewport.width}x${fp.viewport.height} | ${fp.locale} | ${fp.timezone}`
+  );
+
+  const launchOptions: Record<string, unknown> = {
+    headless: false, // Set to true for production / server
+    args: [
+      "--disable-blink-features=AutomationControlled",
+      "--disable-features=IsolateOrigins,site-per-process",
+      "--disable-infobars",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      `--window-size=${fp.viewport.width},${fp.viewport.height}`,
+    ],
+  };
+
+  // Assign a unique proxy from the pool for this user
+  const proxy = useProxy ? getProxyForUser(userIndex) : null;
+  if (proxy) {
+    launchOptions.proxy = {
+      server: `http://${proxy.host}:${proxy.port}`,
+      username: proxy.username,
+      password: proxy.password,
+    };
+    log(`  🔒 프록시: ${proxy.username} @ ${proxy.host}:${proxy.port}`);
+  } else {
+    log(`  ⚡ 프록시 없이 직접 접속`);
+  }
+
+  const browser = await chromium.launch(launchOptions);
+
+  const context = await browser.newContext({
+    viewport: fp.viewport,
+    userAgent: fp.userAgent,
+    locale: fp.locale,
+    timezoneId: fp.timezone,
+    // Disable webdriver flag
+    javaScriptEnabled: true,
+    bypassCSP: true,
+    // Additional stealth headers
+    extraHTTPHeaders: {
+      "Accept-Language": `${fp.locale},en;q=0.9`,
+      "sec-ch-ua-platform": '"Windows"',
+    },
+  });
+
+  // Inject stealth scripts to hide automation indicators
+  await context.addInitScript(() => {
+    // Override navigator.webdriver
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+    });
+
+    // Override chrome runtime
+    (window as unknown as Record<string, unknown>).chrome = {
+      runtime: {},
+    };
+
+    // Override permissions query
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters: PermissionDescriptor) => {
+      if (parameters.name === "notifications") {
+        return Promise.resolve({
+          state: "denied" as PermissionState,
+          onchange: null,
+        } as PermissionStatus);
+      }
+      return originalQuery.call(window.navigator.permissions, parameters);
+    };
+
+    // Override plugins length
+    Object.defineProperty(navigator, "plugins", {
+      get: () => [1, 2, 3, 4, 5],
+    });
+
+    // Override languages
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["ko-KR", "ko", "en-US", "en"],
+    });
+  });
+
+  return { browser, context };
+}
+
+/**
+ * Safely close browser session
+ */
+export async function closeBrowser(session: BrowserSession): Promise<void> {
+  try {
+    await session.context.close();
+    await session.browser.close();
+    log(`  ✅ 브라우저 종료 완료`);
+  } catch (err) {
+    log(`  ⚠️ 브라우저 종료 중 오류:`, String(err));
+  }
+}

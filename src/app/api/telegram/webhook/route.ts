@@ -155,6 +155,86 @@ async function getMissionStatus(): Promise<string> {
     }
 }
 
+// ─── 2-1. Work Status Query (from work_log) ──────────
+async function getWorkStatus(): Promise<string> {
+    try {
+        const supabase = createServerClient();
+
+        // Get recent work_log entries (last 20)
+        const { data: workLogs, error } = await supabase
+            .from("work_log")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .limit(20);
+
+        if (error) {
+            console.error("Work log query error:", error);
+            return "작업 로그를 조회하는 중 오류가 발생했습니다.";
+        }
+
+        if (!workLogs || workLogs.length === 0) {
+            return "📋 최근 작업 기록이 없습니다.\n\n아직 자동 미션 시스템이 실행된 적이 없어요.";
+        }
+
+        // Determine if a batch is currently running
+        const latestBatchStart = workLogs.find((l) => l.event_type === "batch_start");
+        const latestBatchComplete = workLogs.find((l) => l.event_type === "batch_complete");
+        const latestError = workLogs.find((l) => l.event_type === "error");
+
+        let isRunning = false;
+        if (latestBatchStart) {
+            const startTime = new Date(latestBatchStart.created_at).getTime();
+            const completeTime = latestBatchComplete ? new Date(latestBatchComplete.created_at).getTime() : 0;
+            const errorTime = latestError ? new Date(latestError.created_at).getTime() : 0;
+            // Running if batch_start is newer than both complete and error
+            isRunning = startTime > completeTime && startTime > errorTime;
+        }
+
+        // Build status string
+        const lines: string[] = [];
+
+        if (isRunning) {
+            lines.push("🟢 현재 상태: 작업 실행 중!");
+            lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+
+            // Find the latest progress update
+            const latestProgress = workLogs.find((l) => l.event_type === "user_progress");
+            if (latestProgress && new Date(latestProgress.created_at).getTime() > new Date(latestBatchStart!.created_at).getTime()) {
+                lines.push(`📊 ${latestProgress.message}`);
+            } else {
+                lines.push(`🚀 ${latestBatchStart!.message}`);
+            }
+
+            const startedAt = new Date(latestBatchStart!.created_at);
+            const elapsed = Math.round((Date.now() - startedAt.getTime()) / 60000);
+            lines.push(`⏱️ 경과 시간: ${elapsed}분`);
+        } else {
+            lines.push("⚪ 현재 상태: 대기 중 (작업 없음)");
+            lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+        }
+
+        // Show recent activity (latest 5 events)
+        lines.push("");
+        lines.push("📜 최근 활동 기록:");
+        const recentLogs = workLogs.slice(0, 5);
+        for (const entry of recentLogs) {
+            const time = new Date(entry.created_at).toLocaleString("ko-KR", {
+                timeZone: "Asia/Seoul",
+                month: "numeric",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+            });
+            lines.push(`  [${time}] ${entry.message}`);
+        }
+
+        return lines.join("\n");
+    } catch (e) {
+        console.error("Work status error:", e);
+        return "작업 상태를 조회하는 중 오류가 발생했습니다.";
+    }
+}
+
 // ─── 3. Reminder System ──────────────────────────────
 async function saveReminder(chatId: number, userId: number, userName: string, reminderText: string, remindAt: string) {
     try {
@@ -229,10 +309,20 @@ function parseReminderTime(text: string): { reminderText: string; remindAt: stri
 }
 
 // ─── 4. Intent Detection & Gemini Call ───────────────
-type Intent = "mission_status" | "reminder" | "web_search" | "general";
+type Intent = "mission_status" | "work_status" | "reminder" | "web_search" | "general";
 
 function detectIntent(text: string): Intent {
     const lower = text.toLowerCase();
+
+    // Work status keywords (작업 상태 조회 — auto-mission 진행 현황)
+    if (/작업\s*(상태|현황|진행|로그)/.test(lower) ||
+        /뭐\s*(하고|하는)\s*(있|중|거)/.test(lower) ||
+        /무슨\s*(일|작업)/.test(lower) ||
+        /현재\s*(작업|상태|상황)/.test(lower) ||
+        /자동\s*미션\s*(상태|현황|진행)/.test(lower) ||
+        /시스템\s*(상태|현황)/.test(lower)) {
+        return "work_status";
+    }
 
     // Mission status keywords
     if (/미션\s*(현황|진행|상태|진척|조회)/.test(lower) ||
@@ -359,6 +449,7 @@ export async function POST(request: Request) {
 
 🧠 대화 내용을 기억해요
 📊 "미션 현황" - 서포터즈 미션 현황 조회
+🔧 "작업 상태" - 자동 미션 시스템 실행 현황
 🔍 "검색해줘 XXX" - 웹 검색
 ⏰ "30분 후 알려줘 XXX" - 일정 알림
 
@@ -374,6 +465,11 @@ export async function POST(request: Request) {
 📊 미션 현황 조회:
   "미션 현황 알려줘"
   "진행 상황 보여줘"
+
+🔧 작업 상태 조회:
+  "작업 상태 알려줘"
+  "뭐하고 있어?"
+  "현재 작업 상태"
 
 🔍 웹 검색:
   "검색해줘 설야갈비 위치"
@@ -420,6 +516,10 @@ export async function POST(request: Request) {
         let reply: string;
 
         switch (intent) {
+            case "work_status": {
+                reply = await getWorkStatus();
+                break;
+            }
             case "mission_status": {
                 reply = await getMissionStatus();
                 break;

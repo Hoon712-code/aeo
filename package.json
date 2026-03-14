@@ -6,17 +6,24 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "mission": "tsx scripts/auto-mission/index.ts",
+    "mission:dry-run": "tsx scripts/auto-mission/index.ts --dry-run"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.1",
     "@tailwindcss/postcss": "^4.2.1",
     "autoprefixer": "^10.4.27",
+    "dotenv": "^17.3.1",
     "next": "^16.1.6",
+    "playwright": "^1.58.2",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-hot-toast": "^2.5.2"
+    "react-hot-toast": "^2.5.2",
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@types/node": "^22",
