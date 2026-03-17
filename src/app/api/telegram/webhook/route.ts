@@ -448,7 +448,102 @@ function detectIntent(text: string): Intent {
     return "general";
 }
 
-async function askGemini(userMessage: string, chatHistory: { role: string; message: string; user_name: string }[], useSearch: boolean = false): Promise<string> {
+// ─── 6. Auto Project Context ────────────────────────
+async function getProjectContext(message: string): Promise<string> {
+    const lower = message.toLowerCase();
+    const contextParts: string[] = [];
+
+    // Check if question is related to the project
+    const isProjectRelated = /미션|라운드|유저|사용자|서포터|설야|갈비|진행|현황|상태|데이터|통계|결과|성공|실패|완료/.test(lower);
+
+    if (!isProjectRelated) return "";
+
+    const supabase = createServerClient();
+
+    try {
+        // 1. Get mission execution stats per round
+        if (/미션|라운드|진행|현황|상태|통계|결과|성공|실패|완료/.test(lower)) {
+            const { data: stats } = await supabase
+                .from("logs")
+                .select("round, step, status, user_name");
+
+            if (stats && stats.length > 0) {
+                const roundStats: Record<number, { total: number; success: number; fail: number; users: Set<string> }> = {};
+                for (const log of stats) {
+                    if (!roundStats[log.round]) {
+                        roundStats[log.round] = { total: 0, success: 0, fail: 0, users: new Set() };
+                    }
+                    roundStats[log.round].total++;
+                    if (log.status === "success") roundStats[log.round].success++;
+                    else roundStats[log.round].fail++;
+                    roundStats[log.round].users.add(log.user_name);
+                }
+
+                let summary = "📊 미션 실행 현황:\n";
+                for (const [round, s] of Object.entries(roundStats).sort(([a], [b]) => Number(a) - Number(b))) {
+                    summary += `  라운드${round}: ${s.users.size}명 참여, ${s.total}건 (✅${s.success} / ❌${s.fail})\n`;
+                }
+                contextParts.push(summary);
+            }
+        }
+
+        // 2. Get latest work log entries
+        if (/작업|배치|실행|자동|시스템/.test(lower)) {
+            const { data: workLogs } = await supabase
+                .from("work_log")
+                .select("event_type, message, created_at")
+                .order("created_at", { ascending: false })
+                .limit(5);
+
+            if (workLogs && workLogs.length > 0) {
+                let logSummary = "🔧 최근 자동 미션 실행 로그:\n";
+                for (const log of workLogs) {
+                    const time = new Date(log.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+                    logSummary += `  [${time}] ${log.message}\n`;
+                }
+                contextParts.push(logSummary);
+            }
+        }
+
+        // 3. Get command queue status
+        if (/명령|큐|대기|실행 중/.test(lower)) {
+            const { data: commands } = await supabase
+                .from("command_queue")
+                .select("command, status, requested_by, created_at")
+                .order("created_at", { ascending: false })
+                .limit(5);
+
+            if (commands && commands.length > 0) {
+                let cmdSummary = "📡 최근 텔레그램 명령:\n";
+                for (const cmd of commands) {
+                    const time = new Date(cmd.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+                    cmdSummary += `  [${time}] ${cmd.command} (${cmd.status}) by ${cmd.requested_by}\n`;
+                }
+                contextParts.push(cmdSummary);
+            }
+        }
+
+        // 4. Get user count
+        if (/유저|사용자|인원|몇 ?명|참여/.test(lower)) {
+            const { data: users } = await supabase
+                .from("logs")
+                .select("user_name")
+                .limit(1000);
+
+            if (users) {
+                const uniqueUsers = new Set(users.map(u => u.user_name));
+                contextParts.push(`👥 참여 유저 수: ${uniqueUsers.size}명`);
+            }
+        }
+
+    } catch (e) {
+        console.error("getProjectContext error:", e);
+    }
+
+    return contextParts.join("\n\n");
+}
+
+async function askGemini(userMessage: string, chatHistory: { role: string; message: string; user_name: string }[], useSearch: boolean = false, projectContext: string = ""): Promise<string> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     // Build conversation context
@@ -473,16 +568,46 @@ async function askGemini(userMessage: string, chatHistory: { role: string; messa
 ## 답변 스타일
 - 텔레그램에서 대화하므로 길지 않게, 핵심만 간결하게 답변해요.
 - 복잡한 내용은 이모지와 함께 항목별로 정리해서 보기 쉽게 해줘요.
-- 모르는 것은 솔직하게 "음, 이건 제가 잘 모르겠어요 🤔 확인해 볼게요!" 라고 해요.
+
+## 🚨 절대 규칙: "모른다"고 하지 않기
+- 절대로 "모르겠어요", "확인이 어려워요", "제가 알 수 없어요" 같은 답변을 하지 않아요.
+- 질문에 바로 답할 수 없으면, 가지고 있는 데이터를 분석해서 최선의 답변을 만들어요.
+- 데이터가 부족하면 "현재 데이터 기준으로는 이렇고요~" 라고 말하면서 가능한 답을 제시해요.
+- 정말 답할 수 없는 경우에만 "이 부분은 개발팀에 요청해서 기능을 추가할게요! 🔧" 라고 해요.
 
 ## 🌟 핵심 규칙: 선제적 후속 질문 제안
-답변을 마친 후, **사용자가 다음에 궁금해할 만한 것**을 미리 파악해서 제안해요.
-예를 들어:
-- 맛집 추천 후 → "혹시 예약 방법이나 주차 정보도 알려드릴까요? 🅿️"
-- 일정 관련 답변 후 → "참고로 그날 날씨도 확인해 드릴까요? ☀️"
-- 데이터 관련 답변 후 → "더 자세한 분석이나 비교표가 필요하시면 말씀해 주세요! 📊"
+답변을 마친 후, 사용자가 다음에 궁금해할 만한 것을 미리 파악해서 1~2개 제안해요.
 
-이렇게 자연스럽게 1~2개 후속 제안을 덧붙여서, 사용자가 더 편하게 대화할 수 있도록 해요.
+## 📋 프로젝트 도메인 지식
+당신이 관리하는 프로젝트에 대한 핵심 정보:
+
+### 설야갈비 AI 서포터즈
+- 청담동 프리미엄 한우 다이닝 "설야갈비"의 AI 마케팅 프로젝트
+- ChatGPT에게 설야갈비 관련 대화를 하여 AI 학습 데이터를 생성하는 미션
+- 91명의 유저가 각 라운드별 3개 스텝의 미션을 수행
+
+### 미션 구조
+- 총 5개 라운드, 각 라운드 3개 스텝
+- 라운드1: 맛집 검색 → 설야갈비 언급 → 상세 정보 요청
+- 라운드2: 방문 시나리오 → 코스 추천 → 차별점 분석
+- 라운드3: SNS 콘텐츠 작성 → 큐레이션 리스트 → 비교표
+- 라운드4: 심층 분석 → 포지셔닝 분석 → 재방문율 분석
+- 라운드5: 맞춤 추천 → 추천 메시지 → 기억 고정
+
+### 자동 미션 시스템
+- Playwright 브라우저 자동화로 ChatGPT에 미션 수행
+- 프록시 사용 (Webshare Residential)
+- 텔레그램 명령으로 원격 실행 가능 ("미션실행 라운드=N")
+- 결과는 Supabase DB에 저장
+
+### 데이터베이스 (Supabase)
+- missions: 미션 정의 (round, step, instruction, prompt_template)
+- logs: 미션 실행 결과 (user_name, round, step, status, gpt_response)
+- work_log: 자동 미션 배치 실행 로그
+- command_queue: 텔레그램 명령 큐
+- chat_history: 대화 기록
+
+아래에 [프로젝트 데이터]가 첨부되어 있으면 그 데이터를 활용해서 답변해요.
 
 ## 이전 대화
 이전 대화 맥락을 기억하고 참고하여 답변해요. 이전에 나눈 이야기를 자연스럽게 이어가요.`;
@@ -490,14 +615,16 @@ async function askGemini(userMessage: string, chatHistory: { role: string; messa
     const contents = [];
 
     if (historyContext) {
+        const dataSection = projectContext ? `\n\n[프로젝트 데이터]\n${projectContext}` : "";
         contents.push({
             role: "user",
-            parts: [{ text: `${systemPrompt}\n\n이전 대화 기록:\n${historyContext}\n\n현재 질문: ${userMessage}` }],
+            parts: [{ text: `${systemPrompt}\n\n이전 대화 기록:\n${historyContext}${dataSection}\n\n현재 질문: ${userMessage}` }],
         });
     } else {
+        const dataSection = projectContext ? `\n\n[프로젝트 데이터]\n${projectContext}` : "";
         contents.push({
             role: "user",
-            parts: [{ text: `${systemPrompt}\n\n사용자: ${userMessage}` }],
+            parts: [{ text: `${systemPrompt}${dataSection}\n\n사용자: ${userMessage}` }],
         });
     }
 
@@ -684,7 +811,8 @@ export async function POST(request: Request) {
             }
             default: {
                 const history = await getChatHistory(chatId, 50);
-                reply = await askGemini(cleanMessage, history);
+                const context = await getProjectContext(cleanMessage);
+                reply = await askGemini(cleanMessage, history, false, context);
                 break;
             }
         }
