@@ -334,7 +334,8 @@ function parseMissionCommand(text: string): MissionCommand | null {
 
     // Auto-cycle start
     if (/자동\s*미션\s*(시작|실행|돌려|돌리|런)|자동\s*순환\s*(시작|실행)/.test(lower)) {
-        const roundMatch = lower.match(/(?:라운드|round)[\s=]*(\d+)/);
+        const roundMatch = lower.match(/(?:라운드|round)[\s=]*(\d+)/)
+            || lower.match(/(\d+)\s*라운드/);
         const startRound = roundMatch ? parseInt(roundMatch[1], 10) : 1;
         return { command: "auto-cycle", args: { startRound } };
     }
@@ -347,9 +348,10 @@ function parseMissionCommand(text: string): MissionCommand | null {
 
     const args: MissionCommand["args"] = {};
 
-    // Extract round number: "라운드=3", "라운드3", "round3", "round=3", "라운드 3"
+    // Extract round number: "라운드=3", "라운드3", "round3", "round=3", "라운드 3", "3라운드", "4라운드"
     const roundMatch = lower.match(/(?:라운드|round)[\s=]*(\d+)/)
         || lower.match(/(?:라운드|round)\s*(\d+)/)
+        || lower.match(/(\d+)\s*라운드/)
         || lower.match(/r(\d+)(?:\s|$)/i);
     if (roundMatch) args.round = parseInt(roundMatch[1], 10);
 
