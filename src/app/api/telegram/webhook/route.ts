@@ -439,23 +439,26 @@ function detectIntent(text: string): Intent {
         return "mission_status";
     }
 
-    // Reminder keywords
+    // Calendar keywords (MUST be before reminder to avoid "내일 스케줄 알려줘" → reminder)
+    if (/일정|스케줄|캘린더|calendar/.test(lower) ||
+        /오늘\s*(일정|할\s*일|스케줄)|내일\s*(일정|할\s*일|스케줄)/.test(lower) ||
+        /일정\s*(추가|등록|만들|잡아|넣어|삭제|지워|수정|변경|완료|끝|옮겨)/.test(lower) ||
+        /\d+번\s*(삭제|지워|수정|변경|완료|끝|옮겨|내일)/.test(lower) ||
+        /\d+월\s*\d+일\s*(일정|스케줄)/.test(lower) ||
+        /내일\s*뭐/.test(lower)) {
+        return "calendar";
+    }
+
+    // Reminder keywords (after calendar check)
     if (/알려줘|리마인더|알림\s*(설정|등록)/.test(lower) &&
-        /(\d+\s*(분|시간)|내일|오늘)/.test(lower)) {
+        /(\d+\s*(분|시간)|내일|오늘)/.test(lower) &&
+        !/일정|스케줄|캘린더/.test(lower)) {
         return "reminder";
     }
 
     // Web search keywords
     if (/검색|찾아줘|찾아봐|알아봐|최신|뉴스|오늘\s*(날씨|기온)|현재\s*(시간|날짜)/.test(lower)) {
         return "web_search";
-    }
-
-    // Calendar keywords
-    if (/일정|스케줄|캘린더|calendar|오늘\s*(일정|할\s*일|스케줄)|내일\s*(일정|할\s*일|스케줄)/.test(lower) ||
-        /일정\s*(추가|등록|만들|잡아|넣어|삭제|지워|수정|변경|완료|끝|옮겨)/.test(lower) ||
-        /\d+번\s*(삭제|지워|수정|변경|완료|끝|옮겨|내일)/.test(lower) ||
-        /\d+월\s*\d+일\s*(일정|스케줄)/.test(lower)) {
-        return "calendar";
     }
 
     return "general";
