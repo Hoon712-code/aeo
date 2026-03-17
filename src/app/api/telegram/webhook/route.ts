@@ -722,7 +722,7 @@ async function getProjectContext(message: string): Promise<string> {
 
 
 async function askGemini(userMessage: string, chatHistory: { role: string; message: string; user_name: string }[], useSearch: boolean = false, projectContext: string = ""): Promise<string> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     // Build conversation context
     const historyContext = chatHistory.length > 0
