@@ -315,8 +315,8 @@ function parseReminderTime(text: string): { reminderText: string; remindAt: stri
 
 // ─── 4. Mission Command Parsing ──────────────────────
 interface MissionCommand {
-    command: "run" | "dryrun" | "stop";
-    args: { round?: number; maxUsers?: number; concurrency?: number };
+    command: "run" | "dryrun" | "stop" | "auto-cycle" | "auto-cycle-stop";
+    args: { round?: number; maxUsers?: number; concurrency?: number; startRound?: number };
 }
 
 function parseMissionCommand(text: string): MissionCommand | null {
@@ -325,6 +325,18 @@ function parseMissionCommand(text: string): MissionCommand | null {
     // Stop command
     if (/미션\s*(중지|중단|스탑|멈춰|꺼)/.test(lower)) {
         return { command: "stop", args: {} };
+    }
+
+    // Auto-cycle stop (graceful)
+    if (/자동\s*미션\s*(중지|중단|멈춰|꺼|스탑)|자동\s*순환\s*(중지|중단)/.test(lower)) {
+        return { command: "auto-cycle-stop", args: {} };
+    }
+
+    // Auto-cycle start
+    if (/자동\s*미션\s*(시작|실행|돌려|돌리|런)|자동\s*순환\s*(시작|실행)/.test(lower)) {
+        const roundMatch = lower.match(/(?:라운드|round)[\s=]*(\d+)/);
+        const startRound = roundMatch ? parseInt(roundMatch[1], 10) : 1;
+        return { command: "auto-cycle", args: { startRound } };
     }
 
     // Run or dry-run command
@@ -418,7 +430,8 @@ function detectIntent(text: string): Intent {
     if (/미션\s*(실행|돌려|돌리|시작|런|run|중지|중단|스탑|멈춰|꺼)/.test(lower) ||
         /미션을?\s*(돌려|실행)/.test(lower) ||
         /드라이런|dry[\s-]?run/.test(lower) ||
-        /미션\s*테스트\s*실행/.test(lower)) {
+        /미션\s*테스트\s*실행/.test(lower) ||
+        /자동\s*미션|자동\s*순환/.test(lower)) {
         return "mission_command";
     }
 

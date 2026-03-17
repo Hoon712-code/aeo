@@ -24,6 +24,14 @@ const SCRIPT_PATH = path.resolve(__dirname, "index.ts");
 let isRunning = false;
 let currentProcess: ReturnType<typeof spawn> | null = null;
 
+// ─── Auto-Cycle State ───────────────────────────────
+let autoCycleActive = false;
+let autoCycleCurrentRound = 0;
+const AUTO_CYCLE_MAX_ROUND = 5;
+const AUTO_CYCLE_DELAY_MS = 120_000; // 2분 대기 후 다음 라운드
+let autoCycleChatId = 0;
+let autoCycleRequestedBy = "";
+
 // ─── Telegram Helper ────────────────────────────────
 async function sendTelegram(chatId: number, text: string) {
   if (!TELEGRAM_BOT_TOKEN) return;
@@ -63,16 +71,50 @@ async function executeCommand(cmd: {
   await updateCommand(id, "running");
 
   if (command === "stop") {
+    autoCycleActive = false;
     if (currentProcess) {
       currentProcess.kill("SIGTERM");
       currentProcess = null;
       isRunning = false;
       await updateCommand(id, "done", "미션 실행이 중지되었습니다.");
-      await sendTelegram(chat_id, "🛑 미션 실행이 중지되었습니다.");
+      await sendTelegram(chat_id, "🛑 미션 실행이 중지되었습니다. (자동순환도 중지)");
     } else {
       await updateCommand(id, "done", "현재 실행 중인 미션이 없습니다.");
       await sendTelegram(chat_id, "ℹ️ 현재 실행 중인 미션이 없습니다.");
     }
+    return;
+  }
+
+  // Auto-cycle stop (graceful — 현재 라운드 끝나면 멈춤)
+  if (command === "auto-cycle-stop") {
+    autoCycleActive = false;
+    await updateCommand(id, "done", "자동순환이 중지 예약되었습니다.");
+    await sendTelegram(chat_id, "⏸️ 자동순환 중지 예약! 현재 라운드 끝나면 멈춥니다.");
+    return;
+  }
+
+  // Auto-cycle start
+  if (command === "auto-cycle") {
+    const startRound = (args.startRound as number) || 1;
+    autoCycleActive = true;
+    autoCycleCurrentRound = startRound;
+    autoCycleChatId = chat_id;
+    autoCycleRequestedBy = requested_by;
+
+    await updateCommand(id, "done", `자동순환 시작: 라운드 ${startRound}~${AUTO_CYCLE_MAX_ROUND}`);
+    await sendTelegram(
+      chat_id,
+      `🔄 자동순환 미션 시작!\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `📋 라운드 ${startRound} → ${AUTO_CYCLE_MAX_ROUND} 순차 실행\n` +
+        `⏱️ 라운드 간 2분 대기\n` +
+        `👤 요청자: ${requested_by}\n\n` +
+        `중지: "자동미션 중지" (현재 라운드 끝나면)\n` +
+        `즉시중지: "미션 중지"`
+    );
+
+    // Queue the first round
+    await queueRound(startRound, chat_id, requested_by);
     return;
   }
 
@@ -146,7 +188,6 @@ async function executeCommand(cmd: {
     const elapsedStr = elapsedHr > 0 ? `${elapsedHr}h ${remainMin}m` : `${elapsedMin}분`;
 
     if (code === 0) {
-      // Extract summary from output
       const summaryMatch = output.match(/✅ 성공: (\d+)건[\s\S]*?❌ 실패: (\d+)건/);
       const success = summaryMatch ? summaryMatch[1] : "?";
       const failed = summaryMatch ? summaryMatch[2] : "?";
@@ -154,20 +195,52 @@ async function executeCommand(cmd: {
       const resultMsg = `✅ 미션 ${label} 완료! (${elapsedStr} 소요)\n성공: ${success}건 / 실패: ${failed}건`;
       await updateCommand(id, "done", resultMsg);
 
-      // Don't send telegram here for "run" — index.ts already sends its own report
       if (command === "dryrun") {
         await sendTelegram(chat_id, resultMsg);
       }
 
       log(`\n✅ 명령 완료 (exit code: ${code})`);
+
+      // ── Auto-Cycle: queue next round ──
+      if (autoCycleActive && round) {
+        const nextRound = round + 1;
+        if (nextRound <= AUTO_CYCLE_MAX_ROUND) {
+          autoCycleCurrentRound = nextRound;
+          log(`\n🔄 자동순환: ${AUTO_CYCLE_DELAY_MS / 1000}초 후 라운드 ${nextRound} 시작`);
+          await sendTelegram(
+            chat_id,
+            `🔄 라운드 ${round} 완료! ${AUTO_CYCLE_DELAY_MS / 60000}분 후 라운드 ${nextRound} 자동 시작합니다.\n중지: "자동미션 중지"`
+          );
+          setTimeout(() => {
+            if (autoCycleActive) {
+              queueRound(nextRound, autoCycleChatId, autoCycleRequestedBy);
+            } else {
+              log("⏸️ 자동순환 중지됨 — 다음 라운드 실행 안 함");
+              sendTelegram(chat_id, "⏹️ 자동순환이 중지되었습니다.");
+            }
+          }, AUTO_CYCLE_DELAY_MS);
+        } else {
+          autoCycleActive = false;
+          log(`\n🏁 자동순환 완료! 모든 라운드(1~${AUTO_CYCLE_MAX_ROUND}) 실행 완료`);
+          await sendTelegram(
+            chat_id,
+            `🏁 자동순환 완료!\n라운드 1~${AUTO_CYCLE_MAX_ROUND} 모두 실행했습니다. 수고하셨어요! 🎉`
+          );
+        }
+      }
     } else {
-      // Extract last few lines for error context
       const lastLines = output.split("\n").slice(-10).join("\n");
       const resultMsg = `❌ 미션 ${label} 실패 (exit code: ${code}, ${elapsedStr} 소요)\n\n마지막 로그:\n${lastLines.substring(0, 500)}`;
       await updateCommand(id, "error", resultMsg);
       await sendTelegram(chat_id, `❌ 미션 ${label} 실패 (exit code: ${code})\n소요시간: ${elapsedStr}`);
 
       log(`\n❌ 명령 실패 (exit code: ${code})`);
+
+      // Auto-cycle: stop on error
+      if (autoCycleActive) {
+        autoCycleActive = false;
+        await sendTelegram(chat_id, `⚠️ 에러로 자동순환이 중지되었습니다.`);
+      }
     }
   });
 
@@ -208,6 +281,18 @@ async function pollOnce() {
   } catch (err) {
     console.error("폴링 중 오류:", err);
   }
+}
+
+// ─── Queue a mission round ──────────────────────────
+async function queueRound(round: number, chatId: number, requestedBy: string) {
+  log(`📤 라운드 ${round} 명령 큐에 추가`);
+  await supabase.from("command_queue").insert({
+    command: "run",
+    args: { round, maxUsers: 100, concurrency: 1 },
+    status: "pending",
+    requested_by: requestedBy,
+    chat_id: chatId,
+  });
 }
 
 function log(...args: unknown[]) {
