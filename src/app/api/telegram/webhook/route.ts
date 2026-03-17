@@ -466,7 +466,7 @@ async function getProjectContext(message: string): Promise<string> {
 
     try {
         // 1. Get mission execution stats per round
-        if (/미션|라운드|진행|현황|상태|통계|결과|성공|실패|완료/.test(lower)) {
+        if (/미션|라운드|진행|현황|상태|통계|결과|성공|실패|완료|마지막|어디까지/.test(lower)) {
             const { data: stats } = await supabase
                 .from("logs")
                 .select("round, step, status, user_name");
@@ -483,11 +483,25 @@ async function getProjectContext(message: string): Promise<string> {
                     roundStats[log.round].users.add(log.user_name);
                 }
 
-                let summary = "📊 미션 실행 현황:\n";
-                for (const [round, s] of Object.entries(roundStats).sort(([a], [b]) => Number(a) - Number(b))) {
-                    summary += `  라운드${round}: ${s.users.size}명 참여, ${s.total}건 (✅${s.success} / ❌${s.fail})\n`;
+                // Find the last completed round and list all 5 rounds
+                const completedRounds = Object.keys(roundStats).map(Number).sort((a, b) => a - b);
+                const lastCompletedRound = completedRounds[completedRounds.length - 1] || 0;
+
+                let summary = `📊 [사실 기반 데이터] 미션 실행 현황:\n`;
+                summary += `⚡ 마지막으로 완료된 라운드: 라운드${lastCompletedRound}\n`;
+                summary += `📌 다음 실행해야 할 라운드: 라운드${lastCompletedRound + 1}\n\n`;
+
+                for (let r = 1; r <= 5; r++) {
+                    if (roundStats[r]) {
+                        const s = roundStats[r];
+                        summary += `  라운드${r}: ✅ 완료 — ${s.users.size}명 참여, ${s.total}건 (성공${s.success} / 실패${s.fail})\n`;
+                    } else {
+                        summary += `  라운드${r}: ⏳ 아직 실행하지 않음\n`;
+                    }
                 }
                 contextParts.push(summary);
+            } else {
+                contextParts.push("📊 아직 실행된 미션이 없습니다. (logs 테이블에 데이터 없음)");
             }
         }
 
