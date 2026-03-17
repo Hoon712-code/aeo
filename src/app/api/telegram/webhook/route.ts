@@ -11,6 +11,10 @@ interface TelegramMessage {
     chat: { id: number; type: string; title?: string };
     text?: string;
     date: number;
+    reply_to_message?: {
+        from?: { id: number; username?: string; is_bot?: boolean };
+        text?: string;
+    };
 }
 
 interface TelegramUpdate {
@@ -746,10 +750,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ ok: true });
         }
 
-        // In group chats, only respond when mentioned
+        // In group chats, only respond when mentioned or replied to
         if (message.chat.type === "group" || message.chat.type === "supergroup") {
             const botMentioned = userText.includes("@GreatAEO_bot");
-            if (!botMentioned) {
+            const isReplyToBot = message.reply_to_message?.from?.is_bot === true ||
+                message.reply_to_message?.from?.username === "GreatAEO_bot";
+            if (!botMentioned && !isReplyToBot) {
                 return NextResponse.json({ ok: true });
             }
         }
