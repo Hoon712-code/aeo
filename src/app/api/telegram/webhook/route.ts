@@ -458,7 +458,7 @@ async function getProjectContext(message: string): Promise<string> {
     const contextParts: string[] = [];
 
     // Check if question is related to the project
-    const isProjectRelated = /미션|라운드|유저|사용자|서포터|설야|갈비|진행|현황|상태|데이터|통계|결과|성공|실패|완료/.test(lower);
+    const isProjectRelated = /미션|라운드|유저|사용자|서포터|설야|갈비|진행|현황|상태|데이터|통계|결과|성공|실패|완료|마지막|어디까지|몇/.test(lower);
 
     if (!isProjectRelated) return "";
 
@@ -467,51 +467,77 @@ async function getProjectContext(message: string): Promise<string> {
     try {
         // 1. Get mission execution stats per round
         if (/미션|라운드|진행|현황|상태|통계|결과|성공|실패|완료|마지막|어디까지/.test(lower)) {
-            const { data: stats } = await supabase
-                .from("logs")
-                .select("round, step, status, user_name");
+            // Get missions (to know round/step structure)
+            const { data: missions, error: mErr } = await supabase
+                .from("missions")
+                .select("id, round, step");
 
-            if (stats && stats.length > 0) {
-                const roundStats: Record<number, { total: number; success: number; fail: number; users: Set<string> }> = {};
-                for (const log of stats) {
-                    if (!roundStats[log.round]) {
-                        roundStats[log.round] = { total: 0, success: 0, fail: 0, users: new Set() };
-                    }
-                    roundStats[log.round].total++;
-                    if (log.status === "success") roundStats[log.round].success++;
-                    else roundStats[log.round].fail++;
-                    roundStats[log.round].users.add(log.user_name);
+            // Get logs (completed missions)
+            const { data: logs, error: lErr } = await supabase
+                .from("logs")
+                .select("user_id, mission_id, completed_at");
+
+            // Get users
+            const { data: users, error: uErr } = await supabase
+                .from("users")
+                .select("id, name");
+
+            if (mErr) console.error("missions query error:", mErr.message);
+            if (lErr) console.error("logs query error:", lErr.message);
+            if (uErr) console.error("users query error:", uErr.message);
+
+            if (missions && logs && users) {
+                // Build mission ID → round mapping
+                const missionRound: Record<number, number> = {};
+                for (const m of missions) {
+                    missionRound[m.id] = m.round;
                 }
 
-                // Find the last completed round and list all 5 rounds
+                // Count per round
+                const roundStats: Record<number, { total: number; userIds: Set<string> }> = {};
+                for (const log of logs) {
+                    const round = missionRound[log.mission_id];
+                    if (!round) continue;
+                    if (!roundStats[round]) {
+                        roundStats[round] = { total: 0, userIds: new Set() };
+                    }
+                    roundStats[round].total++;
+                    roundStats[round].userIds.add(log.user_id);
+                }
+
+                // Find last completed round
                 const completedRounds = Object.keys(roundStats).map(Number).sort((a, b) => a - b);
-                const lastCompletedRound = completedRounds[completedRounds.length - 1] || 0;
+                const lastCompletedRound = completedRounds.length > 0 ? completedRounds[completedRounds.length - 1] : 0;
 
                 let summary = `📊 [사실 기반 데이터] 미션 실행 현황:\n`;
-                summary += `⚡ 마지막으로 완료된 라운드: 라운드${lastCompletedRound}\n`;
-                summary += `📌 다음 실행해야 할 라운드: 라운드${lastCompletedRound + 1}\n\n`;
+                summary += `👥 총 등록 유저: ${users.length}명\n`;
+                summary += `⚡ 마지막으로 실행 완료된 라운드: 라운드${lastCompletedRound}\n`;
+                summary += `📌 다음 실행해야 할 라운드: 라운드${lastCompletedRound + 1}\n`;
+                summary += `📝 총 완료된 미션: ${logs.length}건\n\n`;
 
                 for (let r = 1; r <= 5; r++) {
                     if (roundStats[r]) {
                         const s = roundStats[r];
-                        summary += `  라운드${r}: ✅ 완료 — ${s.users.size}명 참여, ${s.total}건 (성공${s.success} / 실패${s.fail})\n`;
+                        summary += `  라운드${r}: ✅ 실행 완료 — ${s.userIds.size}명 참여, ${s.total}건 완료\n`;
                     } else {
                         summary += `  라운드${r}: ⏳ 아직 실행하지 않음\n`;
                     }
                 }
                 contextParts.push(summary);
             } else {
-                contextParts.push("📊 아직 실행된 미션이 없습니다. (logs 테이블에 데이터 없음)");
+                contextParts.push("📊 미션 데이터 조회 중 오류 발생");
             }
         }
 
         // 2. Get latest work log entries
         if (/작업|배치|실행|자동|시스템/.test(lower)) {
-            const { data: workLogs } = await supabase
+            const { data: workLogs, error } = await supabase
                 .from("work_log")
                 .select("event_type, message, created_at")
                 .order("created_at", { ascending: false })
                 .limit(5);
+
+            if (error) console.error("work_log query error:", error.message);
 
             if (workLogs && workLogs.length > 0) {
                 let logSummary = "🔧 최근 자동 미션 실행 로그:\n";
@@ -525,11 +551,13 @@ async function getProjectContext(message: string): Promise<string> {
 
         // 3. Get command queue status
         if (/명령|큐|대기|실행 중/.test(lower)) {
-            const { data: commands } = await supabase
+            const { data: commands, error } = await supabase
                 .from("command_queue")
                 .select("command, status, requested_by, created_at")
                 .order("created_at", { ascending: false })
                 .limit(5);
+
+            if (error) console.error("command_queue query error:", error.message);
 
             if (commands && commands.length > 0) {
                 let cmdSummary = "📡 최근 텔레그램 명령:\n";
@@ -543,14 +571,14 @@ async function getProjectContext(message: string): Promise<string> {
 
         // 4. Get user count
         if (/유저|사용자|인원|몇 ?명|참여/.test(lower)) {
-            const { data: users } = await supabase
-                .from("logs")
-                .select("user_name")
-                .limit(1000);
+            const { data: users, error } = await supabase
+                .from("users")
+                .select("id, name");
+
+            if (error) console.error("users query error:", error.message);
 
             if (users) {
-                const uniqueUsers = new Set(users.map(u => u.user_name));
-                contextParts.push(`👥 참여 유저 수: ${uniqueUsers.size}명`);
+                contextParts.push(`👥 등록된 유저 수: ${users.length}명`);
             }
         }
 
@@ -560,6 +588,7 @@ async function getProjectContext(message: string): Promise<string> {
 
     return contextParts.join("\n\n");
 }
+
 
 async function askGemini(userMessage: string, chatHistory: { role: string; message: string; user_name: string }[], useSearch: boolean = false, projectContext: string = ""): Promise<string> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
