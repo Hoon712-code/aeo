@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
+import { getEventsForDate, getEvents, createEvent, deleteEvent, formatEventList, CalendarEvent } from "@/lib/calendar";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -408,7 +409,7 @@ async function handleMissionCommand(chatId: number, userName: string, text: stri
 }
 
 // ─── 5. Intent Detection & Gemini Call ───────────────
-type Intent = "mission_command" | "mission_status" | "work_status" | "reminder" | "web_search" | "general";
+type Intent = "mission_command" | "mission_status" | "work_status" | "calendar" | "reminder" | "web_search" | "general";
 
 function detectIntent(text: string): Intent {
     const lower = text.toLowerCase();
@@ -449,7 +450,137 @@ function detectIntent(text: string): Intent {
         return "web_search";
     }
 
+    // Calendar keywords
+    if (/일정|스케줄|캘린더|calendar|오늘\s*(일정|할\s*일|스케줄)|내일\s*(일정|할\s*일|스케줄)/.test(lower) ||
+        /일정\s*(추가|등록|만들|잡아|넣어|삭제|지워|수정|변경|완료|끝|옮겨)/.test(lower) ||
+        /\d+번\s*(삭제|지워|수정|변경|완료|끝|옮겨|내일)/.test(lower) ||
+        /\d+월\s*\d+일\s*(일정|스케줄)/.test(lower)) {
+        return "calendar";
+    }
+
     return "general";
+}
+
+// ─── 5-1. Calendar Command Handler ────────────────────
+function getKSTToday(): string {
+    const now = new Date();
+    now.setHours(now.getHours() + 9);
+    return now.toISOString().split("T")[0];
+}
+
+function getKSTTomorrow(): string {
+    const now = new Date();
+    now.setHours(now.getHours() + 9);
+    now.setDate(now.getDate() + 1);
+    return now.toISOString().split("T")[0];
+}
+
+function parseDateFromText(text: string): string | null {
+    const lower = text.toLowerCase();
+    if (/오늘/.test(lower)) return getKSTToday();
+    if (/내일/.test(lower)) return getKSTTomorrow();
+    if (/모레/.test(lower)) {
+        const d = new Date(); d.setHours(d.getHours() + 9); d.setDate(d.getDate() + 2);
+        return d.toISOString().split("T")[0];
+    }
+    const mMatch = lower.match(/(\d{1,2})월\s*(\d{1,2})일/);
+    if (mMatch) {
+        const now = new Date(); now.setHours(now.getHours() + 9);
+        return `${now.getFullYear()}-${mMatch[1].padStart(2, "0")}-${mMatch[2].padStart(2, "0")}`;
+    }
+    const slashMatch = lower.match(/(\d{1,2})\/(\d{1,2})/);
+    if (slashMatch) {
+        const now = new Date(); now.setHours(now.getHours() + 9);
+        return `${now.getFullYear()}-${slashMatch[1].padStart(2, "0")}-${slashMatch[2].padStart(2, "0")}`;
+    }
+    return null;
+}
+
+async function handleCalendarCommand(chatId: number, text: string): Promise<string> {
+    const lower = text.toLowerCase();
+    try {
+        // 1. View today's schedule
+        if (/오늘\s*(일정|할\s*일|스케줄)|일정\s*(조회|확인|알려|보여)/.test(lower) && !/내일/.test(lower)) {
+            const today = getKSTToday();
+            const events = await getEventsForDate(today);
+            const dateStr = new Date(today + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
+            return formatEventList(events, `오늘 (${dateStr})`);
+        }
+        // 2. View tomorrow's schedule
+        if (/내일\s*(일정|할\s*일|스케줄)/.test(lower)) {
+            const tomorrow = getKSTTomorrow();
+            const events = await getEventsForDate(tomorrow);
+            const dateStr = new Date(tomorrow + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
+            return formatEventList(events, `내일 (${dateStr})`);
+        }
+        // 3. View specific date
+        const dateFromText = parseDateFromText(text);
+        if (dateFromText && /일정|스케줄/.test(lower) && !/추가|등록|만들|잡아|넣어/.test(lower)) {
+            const events = await getEventsForDate(dateFromText);
+            const dateStr = new Date(dateFromText + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
+            return formatEventList(events, dateStr);
+        }
+        // 4. Add event
+        if (/일정\s*(추가|등록|만들|잡아|넣어)/.test(lower)) {
+            const startDate = parseDateFromText(text);
+            if (!startDate) return "📅 날짜를 알려주세요!\n예: \"4월 5일 미팅 일정 추가\"";
+            let endDate = startDate;
+            const rangeMatch = text.match(/(\d{1,2})월\s*(\d{1,2})일\s*[~\-부터]\s*(\d{1,2})월\s*(\d{1,2})일/);
+            if (rangeMatch) {
+                const now = new Date(); now.setHours(now.getHours() + 9);
+                endDate = `${now.getFullYear()}-${rangeMatch[3].padStart(2, "0")}-${rangeMatch[4].padStart(2, "0")}`;
+            }
+            let title = text.replace(/일정\s*(추가|등록|만들어?|잡아|넣어)/g, "").replace(/\d{1,2}월\s*\d{1,2}일/g, "").replace(/(오늘|내일|모레)/g, "").replace(/[~\-부터까지]/g, "").trim();
+            if (!title) title = "일정";
+            const event = await createEvent(title, startDate, endDate);
+            const dateInfo = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
+            return `✅ 일정이 추가되었어요! 🎉\n\n📌 ${event.title}\n📆 ${dateInfo}\n\n다른 일정도 추가하실래요? 💕`;
+        }
+        // 5. Delete event by number
+        const deleteMatch = lower.match(/(\d+)\s*번\s*(삭제|지워|취소|제거)/);
+        if (deleteMatch) {
+            const eventNum = parseInt(deleteMatch[1], 10);
+            const today = getKSTToday();
+            const events = await getEventsForDate(today);
+            if (eventNum < 1 || eventNum > events.length) return `⚠️ ${eventNum}번 일정이 없어요. 오늘 일정은 ${events.length}건이에요.`;
+            const target = events[eventNum - 1];
+            if (target.url) { await deleteEvent(target.url, target.etag); return `🗑️ ${eventNum}번 "${target.title}" 일정이 삭제되었어요!`; }
+            return "⚠️ 이 일정은 삭제할 수 없어요.";
+        }
+        // 6. Mark as complete
+        const completeMatch = lower.match(/(\d+)\s*번\s*(완료|끝|끝남|했어|다했어)/);
+        if (completeMatch) {
+            const eventNum = parseInt(completeMatch[1], 10);
+            const today = getKSTToday();
+            const events = await getEventsForDate(today);
+            if (eventNum < 1 || eventNum > events.length) return `⚠️ ${eventNum}번 일정이 없어요.`;
+            const target = events[eventNum - 1];
+            const supabase = createServerClient();
+            await supabase.from("calendar_tasks").upsert({ event_uid: target.uid, title: target.title, date: today, event_number: eventNum, is_completed: true, updated_at: new Date().toISOString() }, { onConflict: "event_uid,date" });
+            return `✅ ${eventNum}번 "${target.title}" 완료 처리했어요! 수고했어요~ 👏🎉`;
+        }
+        // 7. Move to tomorrow
+        const moveMatch = lower.match(/(\d+)\s*번\s*(내일|다음날|옮겨|이동)/);
+        if (moveMatch) {
+            const eventNum = parseInt(moveMatch[1], 10);
+            const today = getKSTToday();
+            const tomorrow = getKSTTomorrow();
+            const events = await getEventsForDate(today);
+            if (eventNum < 1 || eventNum > events.length) return `⚠️ ${eventNum}번 일정이 없어요.`;
+            const target = events[eventNum - 1];
+            await createEvent(target.title, tomorrow, tomorrow, target.description);
+            if (target.url) await deleteEvent(target.url, target.etag);
+            return `📅 ${eventNum}번 "${target.title}"을 내일(${tomorrow})로 옮겼어요! ✨`;
+        }
+        // Default: show today
+        const today = getKSTToday();
+        const events = await getEventsForDate(today);
+        const dateStr = new Date(today + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
+        return formatEventList(events, `오늘 (${dateStr})`);
+    } catch (error) {
+        console.error("Calendar command error:", error);
+        return `❌ 캘린더 처리 중 오류가 발생했어요.\n${String(error)}\n\n다시 시도해 주세요! 🙏`;
+    }
 }
 
 // ─── 6. Auto Project Context ────────────────────────
@@ -835,6 +966,10 @@ export async function POST(request: Request) {
             }
             case "mission_status": {
                 reply = await getMissionStatus();
+                break;
+            }
+            case "calendar": {
+                reply = await handleCalendarCommand(chatId, cleanMessage);
                 break;
             }
             case "reminder": {

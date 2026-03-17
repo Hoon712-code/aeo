@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/telegram",
       "schedule": "50 5 * * *"
+    },
+    {
+      "path": "/api/cron/calendar-notify?secret=seolya-galbi-cron-secret-2026",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/cron/calendar-notify?secret=seolya-galbi-cron-secret-2026",
+      "schedule": "0 14 * * *"
     }
   ]
 }
