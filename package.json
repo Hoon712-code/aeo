@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "mission": "tsx scripts/auto-mission/index.ts",
-    "mission:dry-run": "tsx scripts/auto-mission/index.ts --dry-run"
+    "mission:dry-run": "tsx scripts/auto-mission/index.ts --dry-run",
+    "mission:listen": "tsx scripts/auto-mission/command-listener.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

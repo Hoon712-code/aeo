@@ -308,11 +308,114 @@ function parseReminderTime(text: string): { reminderText: string; remindAt: stri
     return null;
 }
 
-// ─── 4. Intent Detection & Gemini Call ───────────────
-type Intent = "mission_status" | "work_status" | "reminder" | "web_search" | "general";
+// ─── 4. Mission Command Parsing ──────────────────────
+interface MissionCommand {
+    command: "run" | "dryrun" | "stop";
+    args: { round?: number; maxUsers?: number; concurrency?: number };
+}
+
+function parseMissionCommand(text: string): MissionCommand | null {
+    const lower = text.toLowerCase().replace(/\s+/g, " ").trim();
+
+    // Stop command
+    if (/미션\s*(중지|중단|스탑|멈춰|꺼)/.test(lower)) {
+        return { command: "stop", args: {} };
+    }
+
+    // Run or dry-run command
+    const isDryRun = /드라이런|dry[\s-]?run|시뮬|테스트\s*실행/.test(lower);
+    const isRun = isDryRun || /미션\s*(실행|돌려|돌리|시작|런|run)|미션을?\s*(돌려|실행)/.test(lower);
+
+    if (!isRun) return null;
+
+    const args: MissionCommand["args"] = {};
+
+    // Extract round number: "라운드=3", "라운드3", "round3", "round=3", "라운드 3"
+    const roundMatch = lower.match(/(?:라운드|round)[\s=]*(\d+)/)
+        || lower.match(/(?:라운드|round)\s*(\d+)/)
+        || lower.match(/r(\d+)(?:\s|$)/i);
+    if (roundMatch) args.round = parseInt(roundMatch[1], 10);
+
+    // Extract max users: "유저=50", "유저50", "50명"
+    const userMatch = lower.match(/(?:유저|사람|인원|max[\s-]?users?)[\s=]*(\d+)/)
+        || lower.match(/(\d+)\s*명/);
+    if (userMatch) args.maxUsers = parseInt(userMatch[1], 10);
+
+    // Extract concurrency: "동시=3", "동시3"
+    const concMatch = lower.match(/(?:동시|concurrency)[\s=]*(\d+)/);
+    if (concMatch) args.concurrency = parseInt(concMatch[1], 10);
+
+    return { command: isDryRun ? "dryrun" : "run", args };
+}
+
+async function handleMissionCommand(chatId: number, userName: string, text: string): Promise<string> {
+    const parsed = parseMissionCommand(text);
+    if (!parsed) return "";
+
+    const supabase = createServerClient();
+
+    // Check for existing running command
+    if (parsed.command !== "stop") {
+        const { data: running } = await supabase
+            .from("command_queue")
+            .select("id")
+            .in("status", ["pending", "running"])
+            .limit(1);
+
+        if (running && running.length > 0) {
+            return "⚠️ 이미 실행 중이거나 대기 중인 명령이 있습니다.\n중지하려면 '미션 중지'를 입력하세요.";
+        }
+    }
+
+    // Insert command into queue
+    const { error } = await supabase.from("command_queue").insert({
+        command: parsed.command,
+        args: parsed.args,
+        status: "pending",
+        requested_by: userName,
+        chat_id: chatId,
+    });
+
+    if (error) {
+        console.error("command_queue insert error:", error);
+        return "❌ 명령 등록에 실패했습니다. 다시 시도해 주세요.";
+    }
+
+    const { command, args } = parsed;
+    const roundLabel = args.round ? `라운드 ${args.round}` : "전체 라운드";
+    const maxUsers = args.maxUsers || 100;
+    const concurrency = args.concurrency || 1;
+
+    if (command === "stop") {
+        return "🛑 미션 중지 명령이 전달되었습니다.";
+    }
+
+    const label = command === "dryrun" ? "DRY-RUN" : "실행";
+    return [
+        `📋 미션 ${label} 명령 접수!`,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        `🎯 ${roundLabel}`,
+        `👥 최대 ${maxUsers}명 | 동시 ${concurrency}명`,
+        `👤 요청자: ${userName}`,
+        ``,
+        `⏳ 로컬 시스템에서 곧 실행됩니다...`,
+        `💡 진행 상태 확인: '작업 상태'`,
+    ].join("\n");
+}
+
+// ─── 5. Intent Detection & Gemini Call ───────────────
+type Intent = "mission_command" | "mission_status" | "work_status" | "reminder" | "web_search" | "general";
 
 function detectIntent(text: string): Intent {
     const lower = text.toLowerCase();
+
+    // Mission command keywords (미션 실행/중지 명령)
+    if (/미션\s*(실행|돌려|돌리|시작|런|run|중지|중단|스탑|멈춰|꺼)/.test(lower) ||
+        /미션을?\s*(돌려|실행)/.test(lower) ||
+        /드라이런|dry[\s-]?run/.test(lower) ||
+        /미션\s*테스트\s*실행/.test(lower)) {
+        return "mission_command";
+    }
 
     // Work status keywords (작업 상태 조회 — auto-mission 진행 현황)
     if (/작업\s*(상태|현황|진행|로그)/.test(lower) ||
@@ -448,6 +551,8 @@ export async function POST(request: Request) {
             const welcome = `안녕하세요! 🤖 저는 스노우(Snowy), 설야갈비 AI 비서입니다!
 
 🧠 대화 내용을 기억해요
+🚀 "미션실행 라운드=3" - 미션 원격 실행
+🛑 "미션 중지" - 실행 중인 미션 중지
 📊 "미션 현황" - 서포터즈 미션 현황 조회
 🔧 "작업 상태" - 자동 미션 시스템 실행 현황
 🔍 "검색해줘 XXX" - 웹 검색
@@ -461,6 +566,12 @@ export async function POST(request: Request) {
         // /help command
         if (userText.startsWith("/help")) {
             const help = `🤖 스노우 사용법
+
+🚀 미션 실행:
+  "미션실행 라운드=3"
+  "미션 돌려 라운드4 50명"
+  "미션 드라이런 라운드=2"
+  "미션 중지"
 
 📊 미션 현황 조회:
   "미션 현황 알려줘"
@@ -516,6 +627,10 @@ export async function POST(request: Request) {
         let reply: string;
 
         switch (intent) {
+            case "mission_command": {
+                reply = await handleMissionCommand(chatId, userName, cleanMessage);
+                break;
+            }
             case "work_status": {
                 reply = await getWorkStatus();
                 break;
