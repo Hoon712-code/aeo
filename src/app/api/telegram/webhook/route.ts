@@ -61,7 +61,7 @@ async function saveMessage(chatId: number, userId: number, userName: string, rol
             user_id: userId,
             user_name: userName,
             role,
-            message: text.substring(0, 2000), // limit storage
+            message: text.substring(0, 4000), // limit storage
             created_at: new Date().toISOString(),
         });
     } catch (e) {
@@ -69,7 +69,7 @@ async function saveMessage(chatId: number, userId: number, userName: string, rol
     }
 }
 
-async function getChatHistory(chatId: number, limit: number = 10): Promise<{ role: string; message: string; user_name: string }[]> {
+async function getChatHistory(chatId: number, limit: number = 50): Promise<{ role: string; message: string; user_name: string }[]> {
     try {
         const supabase = createServerClient();
         const { data } = await supabase
@@ -504,7 +504,7 @@ async function askGemini(userMessage: string, chatHistory: { role: string; messa
     const requestBody: Record<string, unknown> = {
         contents,
         generationConfig: {
-            maxOutputTokens: 1024,
+            maxOutputTokens: 2048,
             temperature: 0.8,
         },
     };
@@ -672,18 +672,18 @@ export async function POST(request: Request) {
                     }
                 } else {
                     // If parsing fails, let Gemini handle it
-                    const history = await getChatHistory(chatId, 10);
+                    const history = await getChatHistory(chatId, 50);
                     reply = await askGemini(cleanMessage, history);
                 }
                 break;
             }
             case "web_search": {
-                const history = await getChatHistory(chatId, 5);
+                const history = await getChatHistory(chatId, 20);
                 reply = await askGemini(cleanMessage, history, true);
                 break;
             }
             default: {
-                const history = await getChatHistory(chatId, 10);
+                const history = await getChatHistory(chatId, 50);
                 reply = await askGemini(cleanMessage, history);
                 break;
             }
