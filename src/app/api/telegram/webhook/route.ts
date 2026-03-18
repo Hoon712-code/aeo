@@ -519,22 +519,28 @@ async function handleCalendarCommand(chatId: number, text: string): Promise<stri
         if (/오늘\s*(일정|할\s*일|스케줄)|일정\s*(조회|확인|알려|보여)/.test(lower) && !/내일/.test(lower)) {
             const today = getKSTToday();
             const events = await getEventsForDate(today);
-            const dateStr = new Date(today + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
-            return formatEventList(events, `오늘 (${dateStr})`);
+            const [ty, tm, td] = today.split('-').map(Number);
+            const tDayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const tDow = tDayNames[new Date(Date.UTC(ty, tm - 1, td)).getUTCDay()];
+            return formatEventList(events, `오늘 (${tm}월 ${td}일 ${tDow}요일)`);
         }
         // 2. View tomorrow's schedule
         if (/내일\s*(일정|할\s*일|스케줄)/.test(lower)) {
             const tomorrow = getKSTTomorrow();
             const events = await getEventsForDate(tomorrow);
-            const dateStr = new Date(tomorrow + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
-            return formatEventList(events, `내일 (${dateStr})`);
+            const [ty, tm, td] = tomorrow.split('-').map(Number);
+            const tDayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const tDow = tDayNames[new Date(Date.UTC(ty, tm - 1, td)).getUTCDay()];
+            return formatEventList(events, `내일 (${tm}월 ${td}일 ${tDow}요일)`);
         }
         // 3. View specific date
         const dateFromText = parseDateFromText(text);
         if (dateFromText && /일정|스케줄/.test(lower) && !/추가|등록|만들|잡아|넣어/.test(lower)) {
             const events = await getEventsForDate(dateFromText);
-            const dateStr = new Date(dateFromText + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
-            return formatEventList(events, dateStr);
+            const [sy, sm, sd] = dateFromText.split('-').map(Number);
+            const sDayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const sDow = sDayNames[new Date(Date.UTC(sy, sm - 1, sd)).getUTCDay()];
+            return formatEventList(events, `${sm}월 ${sd}일 ${sDow}요일`);
         }
         // 4. Add event
         if (/일정\s*(추가|등록|만들|잡아|넣어)/.test(lower)) {
