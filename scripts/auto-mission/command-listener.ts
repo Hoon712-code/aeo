@@ -119,9 +119,17 @@ async function executeCommand(cmd: {
   }
 
   if (isRunning) {
-    await updateCommand(id, "error", "이미 다른 미션이 실행 중입니다.");
-    await sendTelegram(chat_id, "⚠️ 이미 다른 미션이 실행 중입니다. 먼저 중지하려면 '미션 중지'를 입력하세요.");
-    return;
+    // If this run was queued by auto-cycle, kill previous and proceed
+    if (args.fromAutoCycle && currentProcess) {
+      log("⚠️  이전 프로세스 종료 후 새로 시작");
+      currentProcess.kill("SIGTERM");
+      currentProcess = null;
+      isRunning = false;
+    } else {
+      await updateCommand(id, "error", "이미 다른 미션이 실행 중입니다.");
+      await sendTelegram(chat_id, "⚠️ 이미 다른 미션이 실행 중입니다. 먼저 중지하려면 '미션 중지'를 입력하세요.");
+      return;
+    }
   }
 
   // Build CLI args
@@ -301,7 +309,7 @@ async function queueRound(round: number, chatId: number, requestedBy: string) {
   log(`📤 라운드 ${round} 명령 큐에 추가`);
   await supabase.from("command_queue").insert({
     command: "run",
-    args: { round, maxUsers: 100, concurrency: 1 },
+    args: { round, maxUsers: 100, concurrency: 1, fromAutoCycle: true },
     status: "pending",
     requested_by: requestedBy,
     chat_id: chatId,
