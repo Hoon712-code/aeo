@@ -61,26 +61,74 @@ export async function navigateToChatGPT(page: Page): Promise<void> {
   // Wait for initial page to settle
   await randomDelay(...TIMING.pageLoadSettle);
 
-  // Check for Cloudflare challenge page
-  const challengeDetected = await page.$('iframe[title*="challenge"]') ||
-                            await page.$('#challenge-running') ||
-                            await page.$('.challenge-form') ||
-                            await page.$('#cf-stage') ||
-                            await page.$('[class*="cf-turnstile"]');
-  if (challengeDetected) {
-    log("  ⏳ Cloudflare 챌린지 감지 — 자동 해결 대기 중 (최대 30초)...");
-    for (let i = 0; i < 15; i++) {
-      await randomDelay(2000, 3000);
-      const stillBlocked = await page.$('iframe[title*="challenge"]') ||
-                          await page.$('#challenge-running') ||
-                          await page.$('#cf-stage');
-      if (!stillBlocked) {
-        log("  ✅ Cloudflare 챌린지 통과!");
+  // Check for Cloudflare Turnstile challenge page
+  const hasTurnstile = async () => {
+    return await page.$('iframe[title*="challenge"]') ||
+           await page.$('#challenge-running') ||
+           await page.$('.challenge-form') ||
+           await page.$('#cf-stage') ||
+           await page.$('[class*="cf-turnstile"]') ||
+           await page.$('iframe[src*="turnstile"]');
+  };
+
+  if (await hasTurnstile()) {
+    log("  ⏳ Cloudflare Turnstile 감지 — 체크박스 클릭 시도...");
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      // Try to click the Turnstile checkbox inside the iframe
+      try {
+        const frames = page.frames();
+        for (const frame of frames) {
+          const url = frame.url();
+          if (url.includes("turnstile") || url.includes("challenge")) {
+            // Try to click the checkbox inside the iframe
+            const checkbox = await frame.$('input[type="checkbox"]') ||
+                            await frame.$('.cb-lb') ||
+                            await frame.$('#cf-turnstile-response') ||
+                            await frame.$('[role="checkbox"]');
+            if (checkbox) {
+              await checkbox.click({ force: true });
+              log("  ✅ Turnstile 체크박스 클릭!");
+              await randomDelay(3000, 5000);
+            }
+          }
+        }
+      } catch {
+        // Frame might not be accessible, try alternative approach
+      }
+
+      // Also try clicking the outer turnstile widget
+      try {
+        const turnstileWidget = await page.$('[class*="cf-turnstile"]');
+        if (turnstileWidget) {
+          const box = await turnstileWidget.boundingBox();
+          if (box) {
+            // Click in the center-left where the checkbox typically is
+            await page.mouse.click(box.x + 30, box.y + box.height / 2);
+            log("  🖱️ Turnstile 위젯 영역 클릭");
+            await randomDelay(3000, 5000);
+          }
+        }
+      } catch { /* skip */ }
+
+      // Check if challenge is resolved
+      await randomDelay(1500, 2500);
+      if (!(await hasTurnstile())) {
+        log("  ✅ Cloudflare Turnstile 통과!");
         await randomDelay(2000, 4000);
         break;
       }
-      if (i === 14) {
-        throw new Error("Cloudflare 챌린지 해결 실패 — 이 프록시 IP가 차단되었을 수 있습니다.");
+
+      // Check if page has navigated past the challenge
+      const hasInput = await page.$('div#prompt-textarea') || await page.$('#prompt-textarea');
+      if (hasInput) {
+        log("  ✅ ChatGPT 입력창 감지 — 챌린지 통과 확인!");
+        break;
+      }
+
+      if (attempt === 19) {
+        log("  ⚠️ Cloudflare Turnstile 해결 실패 — 계속 시도...");
+        // Don't throw, let the page load attempt continue
       }
     }
   }

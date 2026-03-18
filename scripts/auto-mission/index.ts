@@ -10,6 +10,7 @@
  *   npm run mission -- --round=1       # 특정 라운드만
  *   npm run mission -- --step=1        # 특정 스텝만
  *   npm run mission -- --max-users=5   # 처리할 최대 유저 수
+ *   npm run mission -- --concurrency=5 # 동시 처리 유저 수 (기본: 1)
  */
 
 import "./config"; // Load env first
@@ -142,6 +143,7 @@ function parseArgs() {
     round: flags["round"] ? parseInt(flags["round"] as string, 10) : undefined,
     step: flags["step"] ? parseInt(flags["step"] as string, 10) : undefined,
     maxUsers: flags["max-users"] ? parseInt(flags["max-users"] as string, 10) : 20,
+    concurrency: flags["concurrency"] ? parseInt(flags["concurrency"] as string, 10) : 1,
   };
 }
 
@@ -163,16 +165,27 @@ function groupByUser(missions: PendingMission[]): Map<string, PendingMission[]> 
   return grouped;
 }
 
+// ─── Slot labels for concurrent logging ─────────────
+const SLOT_ICONS = ["🔵", "🟢", "🟡", "🟠", "🔴", "🟣", "⚪", "🟤", "💠", "🔷"];
+
+function slotLog(slotIndex: number, ...args: unknown[]) {
+  const icon = SLOT_ICONS[slotIndex % SLOT_ICONS.length];
+  log(`[${icon} Slot ${slotIndex + 1}]`, ...args);
+}
+
 // ─── Execute missions for a single user (SAME SESSION) ──
 async function executeUserMissions(
   userMissions: PendingMission[],
   userIndex: number,
-  useProxy: boolean
+  useProxy: boolean,
+  slotIndex?: number
 ): Promise<{ success: number; failed: number }> {
   const user = userMissions[0].user;
   let session: BrowserSession | null = null;
   let success = 0;
   let failed = 0;
+  const isConcurrent = slotIndex !== undefined;
+  const _log = isConcurrent ? (...args: unknown[]) => slotLog(slotIndex, ...args) : log;
 
   try {
     // Launch browser with unique fingerprint
@@ -187,8 +200,8 @@ async function executeUserMissions(
       const isFirstQuestion = i === 0;
 
       try {
-        log(`\n${label} 미션 시작... ${isFirstQuestion ? "(첫 질문)" : `(이어서 질문 ${i + 1}/${userMissions.length})`}`);
-        log(`  📝 프롬프트: ${mission.personalizedPrompt.substring(0, 80)}...`);
+        _log(`\n${label} 미션 시작... ${isFirstQuestion ? "(첫 질문)" : `(이어서 질문 ${i + 1}/${userMissions.length})`}`);
+        _log(`  📝 프롬프트: ${mission.personalizedPrompt.substring(0, 80)}...`);
 
         let response: string;
 
@@ -204,23 +217,23 @@ async function executeUserMissions(
           responseCount = count;
         }
 
-        log(`  💬 응답 미리보기: ${response.substring(0, 100)}...`);
+        _log(`  💬 응답 미리보기: ${response.substring(0, 100)}...`);
 
         // Save to database
         await saveResult(user.id, mission.mission.id, response);
         success++;
 
       } catch (err) {
-        log(`  ❌ ${label} 미션 실패: ${String(err)}`);
+        _log(`  ❌ ${label} 미션 실패: ${String(err)}`);
         failed++;
         // If a question fails, try to continue with the next one
         // (the page might still be usable)
       }
     }
 
-    // === After all questions: stare at the page like a real person (~1 min) ===
+    // === After all questions: stare at the page like a real person ===
     if (success > 0) {
-      log(`\n  👀 마지막 응답 읽기 완료 — 화면 응시 중 (약 1분)...`);
+      _log(`\n  👀 마지막 응답 읽기 완료 — 화면 응시 중...`);
 
       // Scroll all the way to the bottom first
       for (let s = 0; s < randInt(3, 6); s++) {
@@ -228,8 +241,8 @@ async function executeUserMissions(
         await randomDelay(800, 2000);
       }
 
-      // Stare at the screen with idle movements for ~60 seconds
-      const stareTime = randInt(50000, 70000); // 50~70 seconds
+      // Stare at the screen with idle movements for ~20-40 seconds
+      const stareTime = randInt(20000, 40000); // 20~40 seconds
       const startStare = Date.now();
 
       while (Date.now() - startStare < stareTime) {
@@ -255,7 +268,7 @@ async function executeUserMissions(
         }
       }
 
-      log(`  ✅ 화면 응시 완료 — 브라우저 종료 준비`);
+      _log(`  ✅ 화면 응시 완료 — 브라우저 종료 준비`);
     }
 
     return { success, failed };
@@ -280,7 +293,7 @@ async function main() {
     log("🔍 DRY-RUN 모드: DB 조회만 수행합니다 (브라우저 실행 없음)\n");
   }
 
-  log(`⚙️  설정: maxUsers=${args.maxUsers}, proxy=${!args.noProxy}, round=${args.round ?? "all"}, step=${args.step ?? "all"}`);
+  log(`⚙️  설정: maxUsers=${args.maxUsers}, proxy=${!args.noProxy}, round=${args.round ?? "all"}, step=${args.step ?? "all"}, concurrency=${args.concurrency}`);
   console.log("");
 
   // 1. Fetch pending missions from DB
@@ -346,6 +359,7 @@ async function main() {
   let userIdx = 0;
   const userResults: UserResult[] = [];
   const startTime = Date.now();
+  const concurrency = args.concurrency;
 
   // Figure out round info for the report
   const steps = [...new Set(pendingMissions.map((m) => m.mission.step))].sort();
@@ -354,43 +368,120 @@ async function main() {
     : `라운드 ${rounds.join(",")} (${steps.length}문항)`;
 
   console.log("\n" + "═".repeat(60));
-  log("🚀 미션 수행 시작!\n");
+  log(`🚀 미션 수행 시작! (동시 처리: ${concurrency}명)\n`);
 
-  for (const [, missions] of userGroups) {
-    userIdx++;
-    const user = missions[0].user;
-    console.log("─".repeat(60));
-    log(`\n👤 [${userIdx}/${userGroups.size}] ${user.name} — 미션 ${missions.length}건`);
+  // Convert userGroups map to array for batch processing
+  const userGroupEntries = [...userGroups.entries()];
 
-    const result = await executeUserMissions(missions, userIdx, !args.noProxy);
-    totalSuccess += result.success;
-    totalFailed += result.failed;
+  if (concurrency <= 1) {
+    // ─── Sequential mode (기존 방식) ───────────────────
+    for (const [, missions] of userGroupEntries) {
+      userIdx++;
+      const user = missions[0].user;
+      console.log("─".repeat(60));
+      log(`\n👤 [${userIdx}/${userGroups.size}] ${user.name} — 미션 ${missions.length}건`);
 
-    // Track per-user results for Telegram report
-    userResults.push({
-      name: user.name,
-      group: user.group,
-      success: result.success,
-      failed: result.failed,
-      total: missions.length,
-      failedSteps: [], // TODO: could track specific failed steps if needed
-    });
+      const result = await executeUserMissions(missions, userIdx, !args.noProxy);
+      totalSuccess += result.success;
+      totalFailed += result.failed;
 
-    // Log progress every 10 users
-    if (userIdx % 10 === 0 || userIdx === userGroups.size) {
+      userResults.push({
+        name: user.name,
+        group: user.group,
+        success: result.success,
+        failed: result.failed,
+        total: missions.length,
+        failedSteps: [],
+      });
+
+      // Log progress every 10 users
+      if (userIdx % 10 === 0 || userIdx === userGroups.size) {
+        await logWorkEvent("user_progress", `📊 진행 중: ${userIdx}/${userGroups.size}명 완료 (✅ ${totalSuccess} / ❌ ${totalFailed})`, {
+          currentUser: userIdx,
+          totalUsers: userGroups.size,
+          success: totalSuccess,
+          failed: totalFailed,
+        });
+      }
+
+      // Add delay between users (except for the last one)
+      if (userIdx < userGroups.size) {
+        const delay = randInt(TIMING.interUserDelayMin, TIMING.interUserDelayMax);
+        log(`\n⏳ 다음 유저까지 ${Math.round(delay / 1000)}초 대기...`);
+        await randomDelay(delay, delay + 1000);
+      }
+    }
+  } else {
+    // ─── Concurrent mode (배치 병렬 처리) ─────────────
+    for (let batchStart = 0; batchStart < userGroupEntries.length; batchStart += concurrency) {
+      const batchEnd = Math.min(batchStart + concurrency, userGroupEntries.length);
+      const batch = userGroupEntries.slice(batchStart, batchEnd);
+      const batchNum = Math.floor(batchStart / concurrency) + 1;
+      const totalBatches = Math.ceil(userGroupEntries.length / concurrency);
+
+      console.log("\n" + "═".repeat(60));
+      log(`\n🔄 배치 ${batchNum}/${totalBatches} 시작 — ${batch.length}명 동시 처리`);
+      for (let i = 0; i < batch.length; i++) {
+        const user = batch[i][1][0].user;
+        slotLog(i, `👤 ${user.name} — 미션 ${batch[i][1].length}건`);
+      }
+      console.log("─".repeat(60));
+
+      // Launch all users in this batch concurrently
+      const batchPromises = batch.map(([, missions], slotIdx) => {
+        const globalIdx = batchStart + slotIdx + 1;
+        return executeUserMissions(missions, globalIdx, !args.noProxy, slotIdx)
+          .then((result) => ({
+            missions,
+            result,
+            user: missions[0].user,
+          }))
+          .catch((err) => {
+            slotLog(slotIdx, `❌ 치명적 오류: ${String(err)}`);
+            return {
+              missions,
+              result: { success: 0, failed: missions.length },
+              user: missions[0].user,
+            };
+          });
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+
+      // Collect results
+      for (const { missions, result, user } of batchResults) {
+        userIdx++;
+        totalSuccess += result.success;
+        totalFailed += result.failed;
+
+        userResults.push({
+          name: user.name,
+          group: user.group,
+          success: result.success,
+          failed: result.failed,
+          total: missions.length,
+          failedSteps: [],
+        });
+      }
+
+      log(`\n✅ 배치 ${batchNum} 완료 — 누적: ✅ ${totalSuccess} / ❌ ${totalFailed}`);
+
+      // Log progress
       await logWorkEvent("user_progress", `📊 진행 중: ${userIdx}/${userGroups.size}명 완료 (✅ ${totalSuccess} / ❌ ${totalFailed})`, {
         currentUser: userIdx,
         totalUsers: userGroups.size,
         success: totalSuccess,
         failed: totalFailed,
+        batch: batchNum,
+        totalBatches,
       });
-    }
 
-    // Add delay between users (except for the last one)
-    if (userIdx < userGroups.size) {
-      const delay = randInt(TIMING.interUserDelayMin, TIMING.interUserDelayMax);
-      log(`\n⏳ 다음 유저까지 ${Math.round(delay / 1000)}초 대기...`);
-      await randomDelay(delay, delay + 1000);
+      // Add delay between batches (except for the last one)
+      if (batchEnd < userGroupEntries.length) {
+        const delay = randInt(TIMING.interUserDelayMin, TIMING.interUserDelayMax);
+        log(`\n⏳ 다음 배치까지 ${Math.round(delay / 1000)}초 대기...`);
+        await randomDelay(delay, delay + 1000);
+      }
     }
   }
 

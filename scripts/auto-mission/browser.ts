@@ -1,6 +1,11 @@
-import { chromium, Browser, BrowserContext } from "playwright";
+import { chromium } from "playwright-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { Browser, BrowserContext } from "playwright";
 import { getProxyForUser, PROXY_ENABLED, VIEWPORTS, USER_AGENTS, LOCALES, TIMEZONES } from "./config";
 import { randInt, log } from "./human-behavior";
+
+// Apply stealth plugin to bypass Cloudflare Turnstile and bot detection
+chromium.use(StealthPlugin());
 
 /**
  * Pick a random item from an array
@@ -30,6 +35,7 @@ export interface BrowserSession {
 
 /**
  * Launch a stealthy browser with unique fingerprint and per-user proxy.
+ * Uses playwright-extra with stealth plugin to bypass Cloudflare Turnstile.
  *
  * @param userIndex  - Index for fingerprint & proxy variation
  * @param useProxy   - Whether to use proxy (can be disabled for testing)
@@ -53,6 +59,7 @@ export async function launchBrowser(
       "--disable-infobars",
       "--no-sandbox",
       "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
       `--window-size=${fp.viewport.width},${fp.viewport.height}`,
     ],
   };
@@ -87,16 +94,21 @@ export async function launchBrowser(
     },
   });
 
-  // Inject stealth scripts to hide automation indicators
+  // Inject additional stealth scripts (on top of stealth plugin)
   await context.addInitScript(() => {
     // Override navigator.webdriver
     Object.defineProperty(navigator, "webdriver", {
       get: () => undefined,
     });
 
-    // Override chrome runtime
+    // Override chrome runtime (make it look like a real Chrome)
     (window as unknown as Record<string, unknown>).chrome = {
-      runtime: {},
+      runtime: {
+        onConnect: undefined,
+        onMessage: undefined,
+      },
+      loadTimes: () => ({}),
+      csi: () => ({}),
     };
 
     // Override permissions query
@@ -111,14 +123,51 @@ export async function launchBrowser(
       return originalQuery.call(window.navigator.permissions, parameters);
     };
 
-    // Override plugins length
+    // Override plugins (realistic Chrome plugins)
     Object.defineProperty(navigator, "plugins", {
-      get: () => [1, 2, 3, 4, 5],
+      get: () => {
+        const plugins = [
+          { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer" },
+          { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai" },
+          { name: "Native Client", filename: "internal-nacl-plugin" },
+        ];
+        const arr = Object.create(PluginArray.prototype);
+        Object.defineProperty(arr, "length", { get: () => plugins.length });
+        plugins.forEach((p, i) => {
+          Object.defineProperty(arr, i, { get: () => p });
+        });
+        return arr;
+      },
     });
 
     // Override languages
     Object.defineProperty(navigator, "languages", {
       get: () => ["ko-KR", "ko", "en-US", "en"],
+    });
+
+    // Override connection info
+    Object.defineProperty(navigator, "connection", {
+      get: () => ({
+        effectiveType: "4g",
+        rtt: 50,
+        downlink: 10,
+        saveData: false,
+      }),
+    });
+
+    // Hide automation-related properties
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      get: () => 0,
+    });
+
+    // Override hardware concurrency (realistic value)
+    Object.defineProperty(navigator, "hardwareConcurrency", {
+      get: () => 8,
+    });
+
+    // Override device memory
+    Object.defineProperty(navigator, "deviceMemory", {
+      get: () => 8,
     });
   });
 

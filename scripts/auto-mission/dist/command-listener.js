@@ -138,12 +138,25 @@ async function executeCommand(cmd) {
         ? path_1.default.join(PROJECT_ROOT, "node_modules", ".bin", "tsx.cmd")
         : path_1.default.join(PROJECT_ROOT, "node_modules", ".bin", "tsx");
     log(`\n🚀 실행: ${tsxCmd} ${SCRIPT_PATH} ${cliArgs.join(" ")}`);
-    currentProcess = (0, child_process_1.spawn)(tsxCmd, [SCRIPT_PATH, ...cliArgs], {
-        cwd: PROJECT_ROOT,
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: process.platform === "win32",
-        env: { ...process.env },
-    });
+    log(`   __dirname: ${__dirname}`);
+    log(`   isInDist: ${isInDist}, PROJECT_ROOT: ${PROJECT_ROOT}`);
+    log(`   tsx exists: ${require("fs").existsSync(tsxCmd)}`);
+    log(`   script exists: ${require("fs").existsSync(SCRIPT_PATH)}`);
+    try {
+        currentProcess = (0, child_process_1.spawn)(tsxCmd, [SCRIPT_PATH, ...cliArgs], {
+            cwd: PROJECT_ROOT,
+            stdio: ["ignore", "pipe", "pipe"],
+            shell: true,
+            env: { ...process.env },
+        });
+    } catch (spawnErr) {
+        log(`❌ spawn 실패: ${spawnErr}`);
+        isRunning = false;
+        currentProcess = null;
+        await updateCommand(id, "error", `spawn 실패: ${String(spawnErr)}`);
+        await sendTelegram(chat_id, `❌ 미션 스크립트 실행 실패: ${String(spawnErr).substring(0, 200)}`);
+        return;
+    }
     let output = "";
     currentProcess.stdout?.on("data", (data) => {
         const text = data.toString();
