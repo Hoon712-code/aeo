@@ -481,16 +481,16 @@ function detectIntent(text: string): Intent {
 
 // ─── 5-1. Calendar Command Handler ────────────────────
 function getKSTToday(): string {
-    const now = new Date();
-    now.setHours(now.getHours() + 9);
-    return now.toISOString().split("T")[0];
+    // Use proper KST timezone to avoid UTC conversion issues
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatter.format(new Date()); // Returns YYYY-MM-DD
 }
 
 function getKSTTomorrow(): string {
     const now = new Date();
-    now.setHours(now.getHours() + 9);
-    now.setDate(now.getDate() + 1);
-    return now.toISOString().split("T")[0];
+    const kstNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    kstNow.setDate(kstNow.getDate() + 1);
+    return kstNow.toISOString().split('T')[0];
 }
 
 function parseDateFromText(text: string): string | null {
@@ -498,18 +498,20 @@ function parseDateFromText(text: string): string | null {
     if (/오늘/.test(lower)) return getKSTToday();
     if (/내일/.test(lower)) return getKSTTomorrow();
     if (/모레/.test(lower)) {
-        const d = new Date(); d.setHours(d.getHours() + 9); d.setDate(d.getDate() + 2);
-        return d.toISOString().split("T")[0];
+        const now = new Date();
+        const kstNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+        kstNow.setDate(kstNow.getDate() + 2);
+        return kstNow.toISOString().split('T')[0];
     }
     const mMatch = lower.match(/(\d{1,2})월\s*(\d{1,2})일/);
     if (mMatch) {
-        const now = new Date(); now.setHours(now.getHours() + 9);
-        return `${now.getFullYear()}-${mMatch[1].padStart(2, "0")}-${mMatch[2].padStart(2, "0")}`;
+        const year = new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', year: 'numeric' });
+        return `${year}-${mMatch[1].padStart(2, '0')}-${mMatch[2].padStart(2, '0')}`;
     }
     const slashMatch = lower.match(/(\d{1,2})\/(\d{1,2})/);
     if (slashMatch) {
-        const now = new Date(); now.setHours(now.getHours() + 9);
-        return `${now.getFullYear()}-${slashMatch[1].padStart(2, "0")}-${slashMatch[2].padStart(2, "0")}`;
+        const year = new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', year: 'numeric' });
+        return `${year}-${slashMatch[1].padStart(2, '0')}-${slashMatch[2].padStart(2, '0')}`;
     }
     return null;
 }
