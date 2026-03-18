@@ -333,13 +333,20 @@ function parseMissionCommand(text: string): MissionCommand | null {
     }
 
     // Auto-cycle start — expanded patterns
-    if (/자동\s*(미션|\s*순환)\s*(시작|실행|돌려|돌리|런|해줘|해줘|부탁|진행|요청|run)/.test(lower) ||
+    // But FIRST: check if it's a question, not a command
+    const isQuestion = /가능|되나|될까|할\s*수\s*있|할까|어떨|어떻/.test(lower) || lower.endsWith('?');
+    
+    if (/자동\s*(미션|\s*순환)/.test(lower) && isQuestion) {
+        // It's a question about auto-mission, not a command
+        return { command: "auto-cycle" as const, args: { isQuestion: true } } as any;
+    }
+    
+    if (/자동\s*(미션|\s*순환)\s*(시작|실행|돌려|돌리|런|해줘|부탁|진행|요청|run)/.test(lower) ||
         /자동\s*순환\s*(미션)?\s*(시작|실행|돌려|돌리|런|해줘|부탁|진행|요청|run)/.test(lower) ||
-        /자동\s*(미션|\s*순환)\s*(시작|실행)\s*(할|\s*수|\s*줄|해)/.test(lower) ||
-        /자동\s*(미션|\s*순환).*(시작|실행|부탁|진행|요청)/.test(lower)) {
+        /자동\s*(미션|\s*순환).+(시작|실행|부탁|진행|요청)/.test(lower)) {
         const roundMatch = lower.match(/(?:라운드|round)[\s=]*(\d+)/)
             || lower.match(/(\d+)\s*라운드/);
-        const startRound = roundMatch ? parseInt(roundMatch[1], 10) : 1;
+        const startRound = roundMatch ? parseInt(roundMatch[1], 10) : 0; // 0 = auto-detect
         return { command: "auto-cycle", args: { startRound } };
     }
 
@@ -376,17 +383,71 @@ async function handleMissionCommand(chatId: number, userName: string, text: stri
 
     const supabase = createServerClient();
 
+    // Handle question about auto-mission (not a command)
+    if ((parsed as any).args?.isQuestion) {
+        // Check last completed round from work_log
+        const { data: lastLog } = await supabase
+            .from("work_log")
+            .select("event_data")
+            .eq("event_type", "batch_start")
+            .order("created_at", { ascending: false })
+            .limit(1);
+        
+        const { data: running } = await supabase
+            .from("command_queue")
+            .select("id, command")
+            .in("status", ["pending", "running"])
+            .limit(1);
+        
+        const isRunning = running && running.length > 0;
+        let lastRound = "알 수 없음";
+        if (lastLog && lastLog[0]?.event_data) {
+            const rd = (lastLog[0].event_data as any).round;
+            if (rd) lastRound = `${rd}라운드`;
+        }
+        
+        return [
+            `📊 자동순환 미션 상태`,
+            `━━━━━━━━━━━━━━━━━━━━`,
+            `📍 현재 상태: ${isRunning ? "🟢 실행 중" : "⚪ 대기 중"}`,
+            `🔄 마지막 실행: ${lastRound}`,
+            ``,
+            `시작하시려면:`,
+            `• "자동미션 시작" (라운드 1부터)`,
+            `• "자동미션 시작 3라운드" (특정 라운드)`,
+        ].join("\n");
+    }
+
     // Check for existing running command
     if (parsed.command !== "stop") {
         const { data: running } = await supabase
             .from("command_queue")
-            .select("id")
+            .select("id, command, args, created_at")
             .in("status", ["pending", "running"])
             .limit(1);
 
         if (running && running.length > 0) {
-            return "⚠️ 이미 실행 중이거나 대기 중인 명령이 있습니다.\n중지하려면 '미션 중지'를 입력하세요.";
+            const cmd = running[0];
+            const ago = Math.round((Date.now() - new Date(cmd.created_at).getTime()) / 60000);
+            return `⚠️ 이미 실행 중인 명령이 있어요.\n\n📌 ${cmd.command} (${ago}분 전 시작)\n\n중지하려면 '미션 중지'를 입력하세요.`;
         }
+    }
+
+    // Auto-detect start round if not specified (startRound === 0)
+    if (parsed.command === "auto-cycle" && (!parsed.args.startRound || parsed.args.startRound === 0)) {
+        const { data: lastLog } = await supabase
+            .from("work_log")
+            .select("event_data")
+            .eq("event_type", "batch_start")
+            .order("created_at", { ascending: false })
+            .limit(1);
+        
+        let nextRound = 1;
+        if (lastLog && lastLog[0]?.event_data) {
+            const lastRound = (lastLog[0].event_data as any).round;
+            if (lastRound) nextRound = (lastRound % 5) + 1;
+        }
+        parsed.args.startRound = nextRound;
     }
 
     // Insert command into queue
