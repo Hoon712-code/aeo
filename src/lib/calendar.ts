@@ -288,14 +288,7 @@ export async function getEventsForDate(date: string): Promise<CalendarEvent[]> {
         events.push(event);
     }
 
-    // Sort: timed events by time first, then all-day events
-    events.sort((a, b) => {
-        if (a.allDay && !b.allDay) return 1;
-        if (!a.allDay && b.allDay) return -1;
-        if (a.startTime && b.startTime) return a.startTime.localeCompare(b.startTime);
-        return 0;
-    });
-
+    // Preserve CalDAV server order (matches iPhone Calendar display)
     console.log(`[Calendar] Returning ${events.length} events for ${date}`);
     return events;
 }
