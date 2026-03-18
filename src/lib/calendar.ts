@@ -288,12 +288,8 @@ export async function getEventsForDate(date: string): Promise<CalendarEvent[]> {
         events.push(event);
     }
 
-    // Sort: recurring events first (matches iPhone Calendar order)
-    events.sort((a, b) => {
-        if (a.isRecurring && !b.isRecurring) return -1;
-        if (!a.isRecurring && b.isRecurring) return 1;
-        return 0; // preserve server order within each group
-    });
+    // Sort by title: (( first, then (, then Korean ㄱㄴㄷ order (matches iPhone Calendar)
+    events.sort((a, b) => a.title.localeCompare(b.title, 'ko-KR'));
     return events;
 }
 
