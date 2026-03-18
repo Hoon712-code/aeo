@@ -288,8 +288,12 @@ export async function getEventsForDate(date: string): Promise<CalendarEvent[]> {
         events.push(event);
     }
 
-    // Preserve CalDAV server order (matches iPhone Calendar display)
-    console.log(`[Calendar] Returning ${events.length} events for ${date}`);
+    // Sort: recurring events first (matches iPhone Calendar order)
+    events.sort((a, b) => {
+        if (a.isRecurring && !b.isRecurring) return -1;
+        if (!a.isRecurring && b.isRecurring) return 1;
+        return 0; // preserve server order within each group
+    });
     return events;
 }
 
