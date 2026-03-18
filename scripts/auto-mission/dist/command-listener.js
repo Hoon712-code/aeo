@@ -21,7 +21,11 @@ const path_1 = __importDefault(require("path"));
 const supabase = (0, supabase_js_1.createClient)(config_1.SUPABASE_URL, config_1.SUPABASE_ANON_KEY);
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const POLL_INTERVAL_MS = 10000; // 10 seconds
-const SCRIPT_PATH = path_1.default.resolve(__dirname, "index.ts");
+// Resolve paths that work from both source and dist
+const isInDist = __dirname.endsWith('dist');
+const scriptDir = isInDist ? path_1.default.resolve(__dirname, '..') : __dirname;
+const PROJECT_ROOT = isInDist ? path_1.default.resolve(__dirname, '../../..') : path_1.default.resolve(__dirname, '../..');
+const SCRIPT_PATH = path_1.default.resolve(scriptDir, "index.ts");
 let isRunning = false;
 let currentProcess = null;
 // ─── Auto-Cycle State ───────────────────────────────
@@ -130,13 +134,12 @@ async function executeCommand(cmd) {
     // Spawn child process
     isRunning = true;
     const startTime = Date.now();
-    const projectRoot = path_1.default.resolve(__dirname, "../..");
     const tsxCmd = process.platform === "win32"
-        ? path_1.default.join(projectRoot, "node_modules", ".bin", "tsx.cmd")
-        : path_1.default.join(projectRoot, "node_modules", ".bin", "tsx");
+        ? path_1.default.join(PROJECT_ROOT, "node_modules", ".bin", "tsx.cmd")
+        : path_1.default.join(PROJECT_ROOT, "node_modules", ".bin", "tsx");
     log(`\n🚀 실행: ${tsxCmd} ${SCRIPT_PATH} ${cliArgs.join(" ")}`);
     currentProcess = (0, child_process_1.spawn)(tsxCmd, [SCRIPT_PATH, ...cliArgs], {
-        cwd: projectRoot,
+        cwd: PROJECT_ROOT,
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, PATH: `C:\\Program Files\\nodejs;${process.env.PATH}` },
     });

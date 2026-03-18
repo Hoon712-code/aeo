@@ -19,7 +19,12 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const POLL_INTERVAL_MS = 10_000; // 10 seconds
-const SCRIPT_PATH = path.resolve(__dirname, "index.ts");
+
+// Resolve paths that work from both source and dist
+const isInDist = __dirname.endsWith('dist');
+const scriptDir = isInDist ? path.resolve(__dirname, '..') : __dirname;
+const PROJECT_ROOT = isInDist ? path.resolve(__dirname, '../../..') : path.resolve(__dirname, '../..');
+const SCRIPT_PATH = path.resolve(scriptDir, "index.ts");
 
 let isRunning = false;
 let currentProcess: ReturnType<typeof spawn> | null = null;
@@ -156,15 +161,14 @@ async function executeCommand(cmd: {
   isRunning = true;
   const startTime = Date.now();
 
-  const projectRoot = path.resolve(__dirname, "../..");
   const tsxCmd = process.platform === "win32"
-    ? path.join(projectRoot, "node_modules", ".bin", "tsx.cmd")
-    : path.join(projectRoot, "node_modules", ".bin", "tsx");
+    ? path.join(PROJECT_ROOT, "node_modules", ".bin", "tsx.cmd")
+    : path.join(PROJECT_ROOT, "node_modules", ".bin", "tsx");
 
   log(`\n🚀 실행: ${tsxCmd} ${SCRIPT_PATH} ${cliArgs.join(" ")}`);
 
   currentProcess = spawn(tsxCmd, [SCRIPT_PATH, ...cliArgs], {
-    cwd: projectRoot,
+    cwd: PROJECT_ROOT,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PATH: `C:\\Program Files\\nodejs;${process.env.PATH}` },
   });
