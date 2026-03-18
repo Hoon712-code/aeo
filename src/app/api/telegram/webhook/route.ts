@@ -480,38 +480,34 @@ function detectIntent(text: string): Intent {
 }
 
 // ─── 5-1. Calendar Command Handler ────────────────────
-function getKSTToday(): string {
-    // Use proper KST timezone to avoid UTC conversion issues
-    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
-    return formatter.format(new Date()); // Returns YYYY-MM-DD
+// Pure UTC math for KST (UTC+9) — no Intl, no toISOString, no locale dependency
+function kstDate(offsetDays = 0): string {
+    const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+    const kstMs = Date.now() + KST_OFFSET_MS + (offsetDays * 24 * 60 * 60 * 1000);
+    const d = new Date(kstMs);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
 }
 
-function getKSTTomorrow(): string {
-    const now = new Date();
-    const kstNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-    kstNow.setDate(kstNow.getDate() + 1);
-    return kstNow.toISOString().split('T')[0];
-}
+function getKSTToday(): string { return kstDate(0); }
+function getKSTTomorrow(): string { return kstDate(1); }
 
 function parseDateFromText(text: string): string | null {
     const lower = text.toLowerCase();
-    if (/오늘/.test(lower)) return getKSTToday();
-    if (/내일/.test(lower)) return getKSTTomorrow();
-    if (/모레/.test(lower)) {
-        const now = new Date();
-        const kstNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-        kstNow.setDate(kstNow.getDate() + 2);
-        return kstNow.toISOString().split('T')[0];
-    }
+    if (/오늘/.test(lower)) return kstDate(0);
+    if (/내일/.test(lower)) return kstDate(1);
+    if (/모레/.test(lower)) return kstDate(2);
     const mMatch = lower.match(/(\d{1,2})월\s*(\d{1,2})일/);
     if (mMatch) {
-        const year = new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', year: 'numeric' });
-        return `${year}-${mMatch[1].padStart(2, '0')}-${mMatch[2].padStart(2, '0')}`;
+        const yyyy = new Date(Date.now() + 9*60*60*1000).getUTCFullYear();
+        return `${yyyy}-${mMatch[1].padStart(2, '0')}-${mMatch[2].padStart(2, '0')}`;
     }
     const slashMatch = lower.match(/(\d{1,2})\/(\d{1,2})/);
     if (slashMatch) {
-        const year = new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', year: 'numeric' });
-        return `${year}-${slashMatch[1].padStart(2, '0')}-${slashMatch[2].padStart(2, '0')}`;
+        const yyyy = new Date(Date.now() + 9*60*60*1000).getUTCFullYear();
+        return `${yyyy}-${slashMatch[1].padStart(2, '0')}-${slashMatch[2].padStart(2, '0')}`;
     }
     return null;
 }
@@ -594,8 +590,14 @@ async function handleCalendarCommand(chatId: number, text: string): Promise<stri
         }
         // Default: show today
         const today = getKSTToday();
+        console.log(`[Calendar] getKSTToday() = ${today}, UTC now = ${new Date().toISOString()}`);
         const events = await getEventsForDate(today);
-        const dateStr = new Date(today + "T00:00:00+09:00").toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" });
+        console.log(`[Calendar] events count = ${events.length}`);
+        // Manual Korean date string to avoid locale issues
+        const [y, m, d] = today.split('-').map(Number);
+        const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+        const dayOfWeek = dayNames[new Date(y, m - 1, d).getDay()];
+        const dateStr = `${m}월 ${d}일 ${dayOfWeek}요일`;
         return formatEventList(events, `오늘 (${dateStr})`);
     } catch (error) {
         console.error("Calendar command error:", error);

@@ -45,7 +45,7 @@ async function getDefaultCalendar(): Promise<{ client: ReturnType<typeof createD
     // Prefer "Home" or first calendar
     const defaultCal = calendars.find(c => {
         const name = (c.displayName as string || "").toLowerCase();
-        return name.includes("home") || name.includes("개인") || name.includes("홈");
+        return name.includes("home") || name.includes("개인") || name.includes("홈") || name.includes("집");
     }) || calendars[0];
 
     return { client, calendar: defaultCal };
