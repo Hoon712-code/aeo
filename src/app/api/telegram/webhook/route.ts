@@ -430,19 +430,14 @@ async function handleMissionCommand(chatId: number, userName: string, text: stri
         ].join("\n");
     }
 
-    // Check for existing running command
-    if (parsed.command !== "stop") {
-        const { data: running } = await supabase
+    // Auto-cleanup stuck commands older than 10 minutes
+    {
+        const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        await supabase
             .from("command_queue")
-            .select("id, command, args, created_at")
+            .update({ status: "error", result: "타임아웃으로 자동 정리됨" })
             .in("status", ["pending", "running"])
-            .limit(1);
-
-        if (running && running.length > 0) {
-            const cmd = running[0];
-            const ago = Math.round((Date.now() - new Date(cmd.created_at).getTime()) / 60000);
-            return `⚠️ 이미 실행 중인 명령이 있어요.\n\n📌 ${cmd.command} (${ago}분 전 시작)\n\n중지하려면 '미션 중지'를 입력하세요.`;
-        }
+            .lt("created_at", tenMinAgo);
     }
 
     // Auto-detect start round if not specified (startRound === 0)
