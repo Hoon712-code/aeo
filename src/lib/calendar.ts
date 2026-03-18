@@ -268,11 +268,16 @@ export async function getEventsForDate(date: string): Promise<CalendarEvent[]> {
         if (seenUids.has(event.uid)) continue;
         seenUids.add(event.uid);
 
+
         // For non-recurring: check date overlap
         if (!event.isRecurring) {
-            if (event.startDate > date || event.endDate < date) continue;
+            if (event.startDate > date || event.endDate < date) {
+                console.log(`[Calendar] SKIP "${event.title}" start=${event.startDate} end=${event.endDate} allDay=${event.allDay} recurring=${event.isRecurring} (target=${date})`);
+                continue;
+            }
         }
 
+        console.log(`[Calendar] KEEP "${event.title}" start=${event.startDate} end=${event.endDate} time=${event.startTime || 'allday'} recurring=${event.isRecurring}`);
         event.url = obj.url;
         event.etag = obj.etag || undefined;
         events.push(event);
