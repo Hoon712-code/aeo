@@ -332,8 +332,11 @@ function parseMissionCommand(text: string): MissionCommand | null {
         return { command: "auto-cycle-stop", args: {} };
     }
 
-    // Auto-cycle start
-    if (/자동\s*미션\s*(시작|실행|돌려|돌리|런)|자동\s*순환\s*(시작|실행)/.test(lower)) {
+    // Auto-cycle start — expanded patterns
+    if (/자동\s*(미션|\s*순환)\s*(시작|실행|돌려|돌리|런|해줘|해줘|부탁|진행|요청|run)/.test(lower) ||
+        /자동\s*순환\s*(미션)?\s*(시작|실행|돌려|돌리|런|해줘|부탁|진행|요청|run)/.test(lower) ||
+        /자동\s*(미션|\s*순환)\s*(시작|실행)\s*(할|\s*수|\s*줄|해)/.test(lower) ||
+        /자동\s*(미션|\s*순환).*(시작|실행|부탁|진행|요청)/.test(lower)) {
         const roundMatch = lower.match(/(?:라운드|round)[\s=]*(\d+)/)
             || lower.match(/(\d+)\s*라운드/);
         const startRound = roundMatch ? parseInt(roundMatch[1], 10) : 1;
@@ -429,11 +432,11 @@ function detectIntent(text: string): Intent {
     const lower = text.toLowerCase();
 
     // Mission command keywords (미션 실행/중지 명령)
-    if (/미션\s*(실행|돌려|돌리|시작|런|run|중지|중단|스탑|멈춰|꺼)/.test(lower) ||
-        /미션을?\s*(돌려|실행)/.test(lower) ||
+    if (/미션\s*(실행|돌려|돌리|시작|런|run|중지|중단|스탑|멈춰|께)/.test(lower) ||
+        /미션을?\s*(돌려|실행|시작)/.test(lower) ||
         /드라이런|dry[\s-]?run/.test(lower) ||
         /미션\s*테스트\s*실행/.test(lower) ||
-        /자동\s*미션|자동\s*순환/.test(lower)) {
+        /자동\s*(미션|\s*순환)/.test(lower)) {
         return "mission_command";
     }
 
