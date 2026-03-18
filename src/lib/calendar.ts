@@ -261,6 +261,9 @@ export async function getEventsForDate(date: string): Promise<CalendarEvent[]> {
 
     for (const obj of objects) {
         if (!obj.data) continue;
+        // Log raw DTSTART/DTEND for debugging
+        const dtLines = obj.data.split(/[\r\n]+/).filter((l: string) => /^(DTSTART|DTEND|RRULE|SUMMARY)/.test(l));
+        console.log(`[Calendar] RAW: ${dtLines.join(' | ')}`);
         const event = parseICS(obj.data, date);
         if (!event) continue;
 
