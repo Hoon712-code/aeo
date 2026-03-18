@@ -465,7 +465,7 @@ async function handleMissionCommand(chatId: number, userName: string, text: stri
     }
 
     const { command, args } = parsed;
-    const roundLabel = args.round ? `라운드 ${args.round}` : "전체 라운드";
+    const roundLabel = args.round ? `라운드 ${args.round}` : args.startRound ? `${args.startRound}라운드부터` : "전체 라운드";
     const maxUsers = args.maxUsers || 100;
     const concurrency = args.concurrency || 1;
 
