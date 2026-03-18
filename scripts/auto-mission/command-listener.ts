@@ -154,12 +154,15 @@ async function executeCommand(cmd: {
   isRunning = true;
   const startTime = Date.now();
 
-  log(`\n🚀 실행: npx tsx ${SCRIPT_PATH} ${cliArgs.join(" ")}`);
+  const projectRoot = path.resolve(__dirname, "../..");
+  const tsxCmd = process.platform === "win32"
+    ? path.join(projectRoot, "node_modules", ".bin", "tsx.cmd")
+    : path.join(projectRoot, "node_modules", ".bin", "tsx");
 
-  const npmCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+  log(`\n🚀 실행: ${tsxCmd} ${SCRIPT_PATH} ${cliArgs.join(" ")}`);
 
-  currentProcess = spawn(npmCmd, ["tsx", SCRIPT_PATH, ...cliArgs], {
-    cwd: path.resolve(__dirname, "../.."),
+  currentProcess = spawn(tsxCmd, [SCRIPT_PATH, ...cliArgs], {
+    cwd: projectRoot,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PATH: `C:\\Program Files\\nodejs;${process.env.PATH}` },
   });
@@ -220,12 +223,22 @@ async function executeCommand(cmd: {
             }
           }, AUTO_CYCLE_DELAY_MS);
         } else {
-          autoCycleActive = false;
-          log(`\n🏁 자동순환 완료! 모든 라운드(1~${AUTO_CYCLE_MAX_ROUND}) 실행 완료`);
+          // Wrap back to round 1
+          const nextRound = 1;
+          autoCycleCurrentRound = nextRound;
+          log(`\n🔄 자동순환: 라운드 ${AUTO_CYCLE_MAX_ROUND} 완료 → ${AUTO_CYCLE_DELAY_MS / 1000}초 후 라운드 1 재시작`);
           await sendTelegram(
             chat_id,
-            `🏁 자동순환 완료!\n라운드 1~${AUTO_CYCLE_MAX_ROUND} 모두 실행했습니다. 수고하셨어요! 🎉`
+            `🔄 라운드 ${AUTO_CYCLE_MAX_ROUND} 완료! ${AUTO_CYCLE_DELAY_MS / 60000}분 후 라운드 1부터 다시 시작합니다.\n중지: "자동미션 중지"`
           );
+          setTimeout(() => {
+            if (autoCycleActive) {
+              queueRound(nextRound, autoCycleChatId, autoCycleRequestedBy);
+            } else {
+              log("⏸️ 자동순환 중지됨 — 다음 라운드 실행 안 함");
+              sendTelegram(chat_id, "⏹️ 자동순환이 중지되었습니다.");
+            }
+          }, AUTO_CYCLE_DELAY_MS);
         }
       }
     } else {
