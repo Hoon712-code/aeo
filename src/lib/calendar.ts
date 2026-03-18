@@ -125,7 +125,16 @@ function rruleMatchesDate(icsData: string, targetDate: string): boolean {
 
     if (/FREQ=WEEKLY/.test(rrule)) {
         const byDayMatch = rrule.match(/BYDAY=([A-Z,]+)/);
-        if (!byDayMatch) return true; // Weekly without BYDAY → same day as DTSTART
+        if (!byDayMatch) {
+            // Weekly without BYDAY → repeats on same weekday as DTSTART
+            const startDT = parseDT(icsData, "DTSTART");
+            if (startDT) {
+                const [sy, sm, sd] = startDT.date.split("-").map(Number);
+                const startDow = new Date(Date.UTC(sy, sm - 1, sd)).getUTCDay();
+                return startDow === targetDow;
+            }
+            return false;
+        }
         const dayMap: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
         const days = byDayMatch[1].split(",").map(d => dayMap[d.trim()]);
         return days.includes(targetDow);
@@ -261,9 +270,6 @@ export async function getEventsForDate(date: string): Promise<CalendarEvent[]> {
 
     for (const obj of objects) {
         if (!obj.data) continue;
-        // Log raw DTSTART/DTEND for debugging
-        const dtLines = obj.data.split(/[\r\n]+/).filter((l: string) => /^(DTSTART|DTEND|RRULE|SUMMARY)/.test(l));
-        console.log(`[Calendar] RAW: ${dtLines.join(' | ')}`);
         const event = parseICS(obj.data, date);
         if (!event) continue;
 
@@ -274,13 +280,9 @@ export async function getEventsForDate(date: string): Promise<CalendarEvent[]> {
 
         // For non-recurring: check date overlap
         if (!event.isRecurring) {
-            if (event.startDate > date || event.endDate < date) {
-                console.log(`[Calendar] SKIP "${event.title}" start=${event.startDate} end=${event.endDate} allDay=${event.allDay} recurring=${event.isRecurring} (target=${date})`);
-                continue;
-            }
+            if (event.startDate > date || event.endDate < date) continue;
         }
 
-        console.log(`[Calendar] KEEP "${event.title}" start=${event.startDate} end=${event.endDate} time=${event.startTime || 'allday'} recurring=${event.isRecurring}`);
         event.url = obj.url;
         event.etag = obj.etag || undefined;
         events.push(event);
