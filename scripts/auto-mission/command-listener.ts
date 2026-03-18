@@ -170,7 +170,8 @@ async function executeCommand(cmd: {
   currentProcess = spawn(tsxCmd, [SCRIPT_PATH, ...cliArgs], {
     cwd: PROJECT_ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PATH: `C:\\Program Files\\nodejs;${process.env.PATH}` },
+    shell: process.platform === "win32",
+    env: { ...process.env },
   });
 
   let output = "";
