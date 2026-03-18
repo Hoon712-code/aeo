@@ -1,8 +1,12 @@
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
 
-// Load .env.local from project root
-dotenv.config({ path: path.resolve(__dirname, "../../.env.local") });
+// Load .env.local from project root (works from both source and dist)
+const envPath1 = path.resolve(__dirname, "../../.env.local");  // from scripts/auto-mission/
+const envPath2 = path.resolve(__dirname, "../../../.env.local"); // from scripts/auto-mission/dist/
+const envPath = fs.existsSync(envPath1) ? envPath1 : envPath2;
+dotenv.config({ path: envPath });
 
 // ─── Supabase ───────────────────────────────────────
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -60,8 +64,8 @@ export const TIMING = {
   /** Wait for ChatGPT response streaming to complete */
   responseTimeout: 120_000, // 2 minutes max
   /** Random delay between users */
-  interUserDelayMin: 30_000, // 30 seconds
-  interUserDelayMax: 120_000, // 2 minutes
+  interUserDelayMin: 3_000, // 3 seconds
+  interUserDelayMax: 7_000, // 7 seconds
   /** Small pauses during interaction */
   microPauseMin: 500,
   microPauseMax: 2000,

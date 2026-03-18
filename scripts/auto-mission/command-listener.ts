@@ -118,18 +118,12 @@ async function executeCommand(cmd: {
     return;
   }
 
-  if (isRunning) {
-    // If this run was queued by auto-cycle, kill previous and proceed
-    if (args.fromAutoCycle && currentProcess) {
-      log("⚠️  이전 프로세스 종료 후 새로 시작");
-      currentProcess.kill("SIGTERM");
-      currentProcess = null;
-      isRunning = false;
-    } else {
-      await updateCommand(id, "error", "이미 다른 미션이 실행 중입니다.");
-      await sendTelegram(chat_id, "⚠️ 이미 다른 미션이 실행 중입니다. 먼저 중지하려면 '미션 중지'를 입력하세요.");
-      return;
-    }
+  // If previous process is still running, kill it and proceed
+  if (isRunning && currentProcess) {
+    log("⚠️  이전 프로세스 종료 후 새로 시작");
+    currentProcess.kill("SIGTERM");
+    currentProcess = null;
+    isRunning = false;
   }
 
   // Build CLI args
