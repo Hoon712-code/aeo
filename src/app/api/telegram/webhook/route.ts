@@ -352,6 +352,18 @@ function parseMissionCommand(text: string): MissionCommand | null {
 
     // Run or dry-run command
     const isDryRun = /드라이런|dry[\s-]?run|시뮬|테스트\s*실행/.test(lower);
+    // Simple round + start commands: "5라운드 시작해", "라운드3 시작", "그럼 시작해"
+    const simpleRound = lower.match(/(\d+)\s*라운드\s*(시작|실행|돌려|돌리)/)
+        || lower.match(/라운드\s*(\d+)\s*(시작|실행|돌려|돌리)/);
+    if (simpleRound) {
+        return { command: "auto-cycle", args: { startRound: parseInt(simpleRound[1], 10) } };
+    }
+    
+    // "그럼 시작해" — shorthand, auto-detect round
+    if (/^(그럼\s*)?(시작|실행)(해|하자|해줘|할게)?/.test(lower)) {
+        return { command: "auto-cycle", args: { startRound: 0 } }; // 0 = auto-detect
+    }
+
     const isRun = isDryRun || /미션\s*(실행|돌려|돌리|시작|런|run)|미션을?\s*(돌려|실행)/.test(lower);
 
     if (!isRun) return null;
@@ -497,7 +509,10 @@ function detectIntent(text: string): Intent {
         /미션을?\s*(돌려|실행|시작)/.test(lower) ||
         /드라이런|dry[\s-]?run/.test(lower) ||
         /미션\s*테스트\s*실행/.test(lower) ||
-        /자동\s*(미션|\s*순환)/.test(lower)) {
+        /자동\s*(미션|\s*순환)/.test(lower) ||
+        /\d+\s*라운드\s*(시작|실행|돌려|돌리)/.test(lower) ||
+        /라운드\s*\d+\s*(시작|실행|돌려|돌리)/.test(lower) ||
+        /^(그럼\s*)?시작/.test(lower)) {
         return "mission_command";
     }
 
