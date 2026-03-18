@@ -542,21 +542,29 @@ async function handleCalendarCommand(chatId: number, text: string): Promise<stri
             const sDow = sDayNames[new Date(Date.UTC(sy, sm - 1, sd)).getUTCDay()];
             return formatEventList(events, `${sm}월 ${sd}일 ${sDow}요일`);
         }
-        // 4. Add event
-        if (/일정\s*(추가|등록|만들|잡아|넣어)/.test(lower)) {
-            const startDate = parseDateFromText(text);
-            if (!startDate) return "📅 날짜를 알려주세요!\n예: \"4월 5일 미팅 일정 추가\"";
+        // 4. Add event — more natural patterns
+        if (/일정\s*(추가|등록|만들|잡아|넣어)|(추가|등록|만들어|넣어|잡아)\s*줘/.test(lower)) {
+            const startDate = parseDateFromText(text) || getKSTToday();
             let endDate = startDate;
             const rangeMatch = text.match(/(\d{1,2})월\s*(\d{1,2})일\s*[~\-부터]\s*(\d{1,2})월\s*(\d{1,2})일/);
             if (rangeMatch) {
-                const now = new Date(); now.setHours(now.getHours() + 9);
-                endDate = `${now.getFullYear()}-${rangeMatch[3].padStart(2, "0")}-${rangeMatch[4].padStart(2, "0")}`;
+                const yyyy = new Date(Date.now() + 9*60*60*1000).getUTCFullYear();
+                endDate = `${yyyy}-${rangeMatch[3].padStart(2, "0")}-${rangeMatch[4].padStart(2, "0")}`;
             }
-            let title = text.replace(/일정\s*(추가|등록|만들어?|잡아|넣어)/g, "").replace(/\d{1,2}월\s*\d{1,2}일/g, "").replace(/(오늘|내일|모레)/g, "").replace(/[~\-부터까지]/g, "").trim();
-            if (!title) title = "일정";
+            let title = text
+                .replace(/일정\s*(추가|등록|만들어?|잡아|넣어)/g, "")
+                .replace(/(추가|등록|만들어?|넣어|잡아)\s*줘/g, "")
+                .replace(/\d{1,2}월\s*\d{1,2}일/g, "")
+                .replace(/(오늘|내일|모레)/g, "")
+                .replace(/[~\-부터까지]/g, "")
+                .replace(/스케줄|캘린더/g, "")
+                .trim();
+            if (!title) return "📝 일정 제목을 알려주세요!\n\n예시:\n• \"오늘 팀 미팅 추가해줘\"\n• \"3월 25일 치과 예약 일정 추가\"\n• \"내일 프레젠테이션 등록해줘\"";
             const event = await createEvent(title, startDate, endDate);
-            const dateInfo = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
-            return `✅ 일정이 추가되었어요! 🎉\n\n📌 ${event.title}\n📆 ${dateInfo}\n\n다른 일정도 추가하실래요? 💕`;
+            const [ay, am, ad] = startDate.split('-').map(Number);
+            const aDayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const aDow = aDayNames[new Date(Date.UTC(ay, am-1, ad)).getUTCDay()];
+            return `✅ 일정이 추가되었어요! 🎉\n\n📌 ${event.title}\n📆 ${am}월 ${ad}일 ${aDow}요일`;
         }
         // 5. Delete event by number
         const deleteMatch = lower.match(/(\d+)\s*번\s*(삭제|지워|취소|제거)/);
@@ -581,18 +589,22 @@ async function handleCalendarCommand(chatId: number, text: string): Promise<stri
             await supabase.from("calendar_tasks").upsert({ event_uid: target.uid, title: target.title, date: today, event_number: eventNum, is_completed: true, updated_at: new Date().toISOString() }, { onConflict: "event_uid,date" });
             return `✅ ${eventNum}번 "${target.title}" 완료 처리했어요! 수고했어요~ 👏🎉`;
         }
-        // 7. Move to tomorrow
-        const moveMatch = lower.match(/(\d+)\s*번\s*(내일|다음날|옮겨|이동)/);
+        // 7. Move to specific date (e.g., "3번 3월 25일로 옮겨" or "3번 내일")
+        const moveMatch = lower.match(/(\d+)\s*번\s*(.+?)\s*(로|으로)?\s*(옮겨|이동|보내|내일|다음날)/);
         if (moveMatch) {
             const eventNum = parseInt(moveMatch[1], 10);
             const today = getKSTToday();
-            const tomorrow = getKSTTomorrow();
             const events = await getEventsForDate(today);
             if (eventNum < 1 || eventNum > events.length) return `⚠️ ${eventNum}번 일정이 없어요.`;
             const target = events[eventNum - 1];
-            await createEvent(target.title, tomorrow, tomorrow, target.description);
+            // Determine target date
+            let moveDate = parseDateFromText(moveMatch[2]) || getKSTTomorrow();
+            await createEvent(target.title, moveDate, moveDate, target.description);
             if (target.url) await deleteEvent(target.url, target.etag);
-            return `📅 ${eventNum}번 "${target.title}"을 내일(${tomorrow})로 옮겼어요! ✨`;
+            const [my, mm, md] = moveDate.split('-').map(Number);
+            const mDayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const mDow = mDayNames[new Date(Date.UTC(my, mm-1, md)).getUTCDay()];
+            return `📅 ${eventNum}번 "${target.title}"을 ${mm}월 ${md}일 ${mDow}요일로 옮겼어요! ✨`;
         }
         // Default: show today
         const today = getKSTToday();
