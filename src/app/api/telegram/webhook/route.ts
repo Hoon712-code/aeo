@@ -566,45 +566,43 @@ async function handleCalendarCommand(chatId: number, text: string): Promise<stri
             const aDow = aDayNames[new Date(Date.UTC(ay, am-1, ad)).getUTCDay()];
             return `✅ 일정이 추가되었어요! 🎉\n\n📌 ${event.title}\n📆 ${am}월 ${ad}일 ${aDow}요일`;
         }
-        // 5. Delete event by number
-        const deleteMatch = lower.match(/(\d+)\s*번\s*(삭제|지워|취소|제거)/);
-        if (deleteMatch) {
-            const eventNum = parseInt(deleteMatch[1], 10);
+        // 5-7. Numbered event actions: detect "N번" then find action keyword anywhere
+        const numMatch = lower.match(/(\d+)\s*번/);
+        if (numMatch) {
+            const eventNum = parseInt(numMatch[1], 10);
             const today = getKSTToday();
             const events = await getEventsForDate(today);
             if (eventNum < 1 || eventNum > events.length) return `⚠️ ${eventNum}번 일정이 없어요. 오늘 일정은 ${events.length}건이에요.`;
             const target = events[eventNum - 1];
-            if (target.url) { await deleteEvent(target.url, target.etag); return `🗑️ ${eventNum}번 "${target.title}" 일정이 삭제되었어요!`; }
-            return "⚠️ 이 일정은 삭제할 수 없어요.";
-        }
-        // 6. Mark as complete
-        const completeMatch = lower.match(/(\d+)\s*번\s*(완료|끝|끝남|했어|다했어)/);
-        if (completeMatch) {
-            const eventNum = parseInt(completeMatch[1], 10);
-            const today = getKSTToday();
-            const events = await getEventsForDate(today);
-            if (eventNum < 1 || eventNum > events.length) return `⚠️ ${eventNum}번 일정이 없어요.`;
-            const target = events[eventNum - 1];
-            const supabase = createServerClient();
-            await supabase.from("calendar_tasks").upsert({ event_uid: target.uid, title: target.title, date: today, event_number: eventNum, is_completed: true, updated_at: new Date().toISOString() }, { onConflict: "event_uid,date" });
-            return `✅ ${eventNum}번 "${target.title}" 완료 처리했어요! 수고했어요~ 👏🎉`;
-        }
-        // 7. Move to specific date (e.g., "3번 3월 25일로 옮겨" or "3번 내일")
-        const moveMatch = lower.match(/(\d+)\s*번\s*(.+?)\s*(로|으로)?\s*(옮겨|이동|보내|내일|다음날)/);
-        if (moveMatch) {
-            const eventNum = parseInt(moveMatch[1], 10);
-            const today = getKSTToday();
-            const events = await getEventsForDate(today);
-            if (eventNum < 1 || eventNum > events.length) return `⚠️ ${eventNum}번 일정이 없어요.`;
-            const target = events[eventNum - 1];
-            // Determine target date
-            let moveDate = parseDateFromText(moveMatch[2]) || getKSTTomorrow();
-            await createEvent(target.title, moveDate, moveDate, target.description);
-            if (target.url) await deleteEvent(target.url, target.etag);
-            const [my, mm, md] = moveDate.split('-').map(Number);
-            const mDayNames = ['일', '월', '화', '수', '목', '금', '토'];
-            const mDow = mDayNames[new Date(Date.UTC(my, mm-1, md)).getUTCDay()];
-            return `📅 ${eventNum}번 "${target.title}"을 ${mm}월 ${md}일 ${mDow}요일로 옮겼어요! ✨`;
+            const rest = lower; // search full text for action keywords
+
+            // DELETE: 삭제, 지워, 취소, 제거, 없애
+            if (/삭제|지워|취소|제거|없애/.test(rest)) {
+                if (target.url) { await deleteEvent(target.url, target.etag); return `🗑️ ${eventNum}번 "${target.title}" 일정이 삭제되었어요!`; }
+                return "⚠️ 이 일정은 삭제할 수 없어요.";
+            }
+
+            // COMPLETE: 완료, 끝, 했어, 다했어, 처리
+            if (/완료|끝났|끝남|했어|다했어|처리/.test(rest)) {
+                const supabase = createServerClient();
+                await supabase.from("calendar_tasks").upsert({ event_uid: target.uid, title: target.title, date: today, event_number: eventNum, is_completed: true, updated_at: new Date().toISOString() }, { onConflict: "event_uid,date" });
+                return `✅ ${eventNum}번 "${target.title}" 완료 처리했어요! 수고했어요~ 👏🎉`;
+            }
+
+            // MOVE: 옮겨, 이동, 보내, 바꿔, 변경, 미뤄, 내일, 모레, N월 N일
+            if (/옮|이동|보내|바꿔|바꾸|변경|미뤄|미루|내일|모레|다음날|\d{1,2}월\s*\d{1,2}일/.test(rest)) {
+                // Find target date from the full text (excluding the number)
+                const moveDate = parseDateFromText(text) || getKSTTomorrow();
+                await createEvent(target.title, moveDate, moveDate, target.description);
+                if (target.url) await deleteEvent(target.url, target.etag);
+                const [my, mm, md] = moveDate.split('-').map(Number);
+                const mDayNames = ['일', '월', '화', '수', '목', '금', '토'];
+                const mDow = mDayNames[new Date(Date.UTC(my, mm-1, md)).getUTCDay()];
+                return `📅 ${eventNum}번 "${target.title}"을 ${mm}월 ${md}일 ${mDow}요일로 옮겼어요! ✨`;
+            }
+
+            // Unknown action for numbered event
+            return `📋 ${eventNum}번 "${target.title}"\n\n뭘 하실래요?\n• "삭제해줘"\n• "완료 처리해줘"\n• "내일로 옮겨줘"\n• "3월 25일로 바꿔줘"`;
         }
         // Default: show today
         const today = getKSTToday();
